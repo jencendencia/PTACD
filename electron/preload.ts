@@ -28,6 +28,7 @@ import type {
   LiquidationItemInput,
   PtaApi,
   PtaDashboard,
+  PtaDbConfig,
   PtaDbStatus,
   PtaFilePick,
   PtaLoginResult,
@@ -47,9 +48,11 @@ const api: PtaApi = {
     ipcRenderer.on('db:status', listener);
     return () => ipcRenderer.removeListener('db:status', listener);
   },
+  connectDb: (config: PtaDbConfig) => ipcRenderer.invoke('pta:dbConnect', config) as Promise<PtaDbStatus>,
 
   ptaLogin: (username, password) =>
     ipcRenderer.invoke('pta:login', username, password) as Promise<PtaLoginResult>,
+  me: () => ipcRenderer.invoke('pta:me') as Promise<PtaUser | null>,
   listPtaUsers: () => ipcRenderer.invoke('pta:listUsers') as Promise<PtaUser[]>,
   createPtaUser: (input: PtaUserInput) => ipcRenderer.invoke('pta:createUser', input) as Promise<PtaUser>,
   updatePtaUser: (id: number, patch: Partial<PtaUserInput>) =>

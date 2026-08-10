@@ -31,6 +31,7 @@ import type {
   LiquidationItemInput,
   PtaApi,
   PtaDashboard,
+  PtaDbConfig,
   PtaDbStatus,
   PtaFilePick,
   PtaLoginResult,
@@ -147,17 +148,30 @@ class MockApi implements PtaApi {
   }
 
   // ---- db status ---------------------------------------------------------------
+  private dbConfig: PtaDbConfig = { host: '127.0.0.1', port: 3306, user: 'root', database: 'tapin_school' };
+
   async getDbStatus(): Promise<PtaDbStatus> {
+    const { host, port, user, database } = this.dbConfig;
     return {
       online: true,
-      detail: 'MySQL 127.0.0.1:3306 connected (demo mock)',
-      host: '127.0.0.1',
-      port: 3306,
-      database: 'tapin_school',
+      detail: `MySQL ${host}:${port} connected (demo mock)`,
+      host,
+      port,
+      database,
+      user,
     };
   }
   onDbStatusChange(_cb: (status: PtaDbStatus) => void): () => void {
     return () => undefined;
+  }
+  async connectDb(config: PtaDbConfig): Promise<PtaDbStatus> {
+    this.dbConfig = {
+      host: String(config.host ?? '').trim() || '127.0.0.1',
+      port: Number(config.port) || 3306,
+      user: String(config.user ?? '').trim() || 'root',
+      database: String(config.database ?? '').trim() || 'tapin_school',
+    };
+    return this.getDbStatus();
   }
 
   // ---- auth ------------------------------------------------------------------
@@ -167,6 +181,9 @@ class MockApi implements PtaApi {
     if (!u) return { ok: false, error: 'Invalid username or password.' };
     this.currentUser = this.toPtaUser(u);
     return { ok: true, user: this.toPtaUser(u) };
+  }
+  async me(): Promise<PtaUser | null> {
+    return this.currentUser ? { ...this.currentUser } : null;
   }
   async listPtaUsers(): Promise<PtaUser[]> {
     this.requireRoles('admin');

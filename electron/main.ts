@@ -2,7 +2,7 @@
 import { app, BrowserWindow } from 'electron';
 import * as path from 'path';
 import { db } from './db/connection';
-import { bootPta, registerIpc } from './ipc';
+import { bootPta, configureDbFromDisk, registerIpc } from './ipc';
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -38,6 +38,7 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   registerIpc();
   createWindow();
+  configureDbFromDisk();
   db.start();
   // Bounded wait for the first successful connection, then bootstrap.
   const deadline = Date.now() + 30000;

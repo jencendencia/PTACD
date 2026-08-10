@@ -8,6 +8,9 @@ export function FundsScreen() {
   const [components, setComponents] = useState<FeeComponent[]>([]);
   const [rules, setRules] = useState<DistributionRule[]>([]);
   const [showAddFund, setShowAddFund] = useState(false);
+  const [fundToDelete, setFundToDelete] = useState<Fund | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = () => {
@@ -35,13 +38,17 @@ export function FundsScreen() {
   };
 
   const removeFund = async (f: Fund) => {
-    if (!window.confirm(`Delete fund "${f.name}"?`)) return;
+    setDeleting(true);
+    setDeleteError(null);
     try {
       await api.deleteFund(f.id);
+      setFundToDelete(null);
       notify('Fund deleted');
       load();
     } catch (err) {
-      window.alert((err as Error).message);
+      setDeleteError((err as Error).message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -120,7 +127,7 @@ export function FundsScreen() {
                   <td>{f.name}</td>
                   <td className="text-dim">{f.description || '—'}</td>
                   <td><span className={`pill ${f.is_active ? 'pill-success' : 'pill-dim'}`}>{f.is_active ? 'ACTIVE' : 'INACTIVE'}</span></td>
-                  <td><button className="btn-icon danger" title="Delete fund" onClick={() => void removeFund(f)}>🗑</button></td>
+                  <td><button className="btn-icon danger" title="Delete fund" onClick={() => { setDeleteError(null); setFundToDelete(f); }}>🗑</button></td>
                 </tr>
               ))}
               {funds.length === 0 && <tr><td colSpan={4} className="empty-cell">No funds yet.</td></tr>}
@@ -128,6 +135,22 @@ export function FundsScreen() {
           </table>
         </div>
       </div>
+
+      {fundToDelete && (
+        <Modal title="Delete fund" onClose={() => { if (!deleting) setFundToDelete(null); }}>
+          <p>
+            Are you sure you want to delete <strong>{fundToDelete.name}</strong>? This cannot be undone.
+          </p>
+          <p className="field-hint">Funds that have distribution rules, disbursements or advances attached cannot be deleted.</p>
+          {deleteError && <p className="field-hint sms-error">{deleteError}</p>}
+          <div className="form-actions">
+            <button className="btn-ghost" onClick={() => setFundToDelete(null)} disabled={deleting}>Cancel</button>
+            <button className="btn-danger" onClick={() => void removeFund(fundToDelete)} disabled={deleting}>
+              {deleting ? 'Deleting…' : '🗑 Delete fund'}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {showAddFund && (
         <AddFundModal

@@ -17,16 +17,6 @@ interface DbConfig {
   database: string;
 }
 
-function getConfig(): DbConfig {
-  return {
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'tapin_school',
-  };
-}
-
 class Database extends EventEmitter {
   private pool: Pool | null = null;
   private online = false;
@@ -34,6 +24,8 @@ class Database extends EventEmitter {
   private cfg: DbConfig | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
   private started = false;
+  /** Manual overrides (from the title-bar connect dialog) merged over env defaults. */
+  private overrides: Partial<DbConfig> = {};
 
   start(): void {
     if (this.started) return;
@@ -41,9 +33,40 @@ class Database extends EventEmitter {
     void this.connect();
   }
 
+  /** Apply a new connection config (persisted by the caller). Takes effect on reconnect. */
+  setConfig(cfg: Partial<DbConfig>): void {
+    this.overrides = { ...this.overrides, ...cfg };
+  }
+
+  /** Config actually used: persisted overrides win over .env values. */
+  getConfig(): DbConfig {
+    return {
+      host: this.overrides.host || process.env.DB_HOST || '127.0.0.1',
+      port: Number(this.overrides.port ?? process.env.DB_PORT ?? 3306),
+      user: this.overrides.user || process.env.DB_USER || 'root',
+      password: this.overrides.password ?? process.env.DB_PASSWORD ?? '',
+      database: this.overrides.database || process.env.DB_NAME || 'tapin_school',
+    };
+  }
+
+  /** Drop the current pool and connect with the (possibly updated) config. */
+  async reconnect(): Promise<boolean> {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.pool) {
+      await this.pool.end().catch(() => undefined);
+      this.pool = null;
+    }
+    this.online = false;
+    this.setOnline(false, 'Reconnecting…');
+    return this.connect();
+  }
+
   async connect(): Promise<boolean> {
     if (this.online) return true;
-    const cfg = getConfig();
+    const cfg = this.getConfig();
     this.cfg = cfg;
     try {
       const pool = createPool({
@@ -91,13 +114,14 @@ class Database extends EventEmitter {
   }
 
   getStatus(): PtaDbStatus {
-    const cfg = this.cfg ?? getConfig();
+    const cfg = this.cfg ?? this.getConfig();
     return {
       online: this.online,
       detail: this.detail,
       host: cfg.host,
       port: cfg.port,
       database: cfg.database,
+      user: cfg.user,
     };
   }
 

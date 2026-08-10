@@ -33,6 +33,14 @@ export default function App() {
   const [settings, setSettings] = useState<PtaSettings | null>(null);
   const [schoolYears, setSchoolYears] = useState<string[]>([]);
 
+  // Restore a session the main process still holds (e.g. after a renderer
+  // reload that followed a database reconnect from the title bar).
+  useEffect(() => {
+    void api.me().then((u) => {
+      if (u) setUser(u);
+    });
+  }, []);
+
   // Refresh settings on login and on every tab switch so the sidebar selector
   // and the year-scoped screens stay in sync with changes made in Settings.
   useEffect(() => {

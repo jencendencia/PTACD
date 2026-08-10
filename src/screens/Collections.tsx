@@ -23,6 +23,9 @@ export function CollectionsScreen() {
   // Tracks which receipt the pending detail fetch belongs to, so closing the
   // modal mid-load can't let a stale response re-open it.
   const detailRequest = useRef<number | null>(null);
+  const [receiptToVoid, setReceiptToVoid] = useState<Collection | null>(null);
+  const [voiding, setVoiding] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
 
   const PAGE = 20;
   const load = useCallback((off = 0) => {
@@ -101,11 +104,19 @@ export function CollectionsScreen() {
     }
   };
 
-  const voidRow = async (id: number) => {
-    if (!window.confirm('Void this receipt? The payment is reversed and the OR number is kept for the record.')) return;
-    await api.voidCollection(id);
-    notify('Collection voided');
-    load(offset);
+  const voidRow = async (r: Collection) => {
+    setVoiding(true);
+    setVoidError(null);
+    try {
+      await api.voidCollection(r.id);
+      setReceiptToVoid(null);
+      notify('Collection voided');
+      load(offset);
+    } catch (err) {
+      setVoidError((err as Error).message);
+    } finally {
+      setVoiding(false);
+    }
   };
 
   return (
@@ -221,7 +232,7 @@ export function CollectionsScreen() {
                   <td>
                     <div className="row-actions">
                       <button className="btn-icon" title="View breakdown & distribution" onClick={() => void openDetail(r)}>👁</button>
-                      <button className="btn-icon danger" title="Void" onClick={() => void voidRow(r.id)}>🗑</button>
+                      <button className="btn-icon danger" title="Void" onClick={() => { setVoidError(null); setReceiptToVoid(r); }}>🗑</button>
                     </div>
                   </td>
                 </tr>
@@ -277,6 +288,22 @@ export function CollectionsScreen() {
               </div>
             </div>
           )}
+        </Modal>
+      )}
+
+      {receiptToVoid && (
+        <Modal title="Void receipt" onClose={() => { if (!voiding) setReceiptToVoid(null); }}>
+          <p>
+            Are you sure you want to void <strong>{receiptToVoid.or_no}</strong> ({fmtMoney(receiptToVoid.amount)} — {receiptToVoid.guardian_name})?
+          </p>
+          <p className="field-hint">The payment is reversed on the family's balance and the OR number is kept for the record.</p>
+          {voidError && <p className="field-hint sms-error">{voidError}</p>}
+          <div className="form-actions">
+            <button className="btn-ghost" onClick={() => setReceiptToVoid(null)} disabled={voiding}>Cancel</button>
+            <button className="btn-danger" onClick={() => void voidRow(receiptToVoid)} disabled={voiding}>
+              {voiding ? 'Voiding…' : '🗑 Void receipt'}
+            </button>
+          </div>
         </Modal>
       )}
 

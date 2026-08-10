@@ -2,7 +2,7 @@
 // officer; sensitive actions enforce roles (President approves, Treasurer
 // pays, Admin manages users).
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { promises as fs } from 'fs';
+import { existsSync, readFileSync, promises as fs } from 'fs';
 import * as path from 'path';
 import { db } from './db/connection';
 import { get as getSettings, load as loadSettings, update as updateSettings } from './db/settings';
@@ -52,6 +52,9 @@ import {
   sectionFamilies,
   statementOfAccount,
 } from './services/reports';
+
+// Where the user-edited DB connection config is persisted (userData, not the repo).
+const DB_CONFIG_FILE = 'db-config.json';
 import type {
   Advance,
   AdvanceFilter,
@@ -77,6 +80,7 @@ import type {
   LiquidationItem,
   LiquidationItemInput,
   PtaDashboard,
+  PtaDbConfig,
   PtaDbStatus,
   PtaFilePick,
   PtaLoginResult,
@@ -113,6 +117,31 @@ export function registerIpc(): void {
     }
   });
   ipcMain.handle('pta:dbStatus', (): PtaDbStatus => db.getStatus());
+  ipcMain.handle('pta:dbConnect', async (_e, config: PtaDbConfig): Promise<PtaDbStatus> => {
+    db.setConfig({
+      host: String(config.host ?? '').trim(),
+      port: Number(config.port) || 3306,
+      user: String(config.user ?? '').trim(),
+      password: config.password ?? '',
+      database: String(config.database ?? '').trim(),
+    });
+    const ok = await db.reconnect();
+    if (ok) {
+      // Remember the working config for next launch.
+      const cfg = db.getConfig();
+      await fs
+        .writeFile(path.join(app.getPath('userData'), DB_CONFIG_FILE), JSON.stringify(cfg, null, 2), 'utf8')
+        .catch((err) => console.error('[pta] failed to persist db config:', err));
+      // The app may have booted while the DB was unreachable — (re)run the
+      // bootstrap (schema, settings, families, charges) against the new server.
+      try {
+        await bootPta();
+      } catch (err) {
+        console.error('[pta] post-connect boot failed:', err);
+      }
+    }
+    return db.getStatus();
+  });
 
   // ---- Window controls (custom title bar) ---------------------------------------
   ipcMain.handle('win:minimize', (e) => {
@@ -400,6 +429,19 @@ export function registerIpc(): void {
       return statementOfAccount(familyId, schoolYear);
     },
   );
+}
+
+/** Loads a previously saved DB connection config (from the title-bar dialog)
+ *  so a re-connect survives app restarts. Call before db.start(). */
+export function configureDbFromDisk(): void {
+  const file = path.join(app.getPath('userData'), DB_CONFIG_FILE);
+  if (!existsSync(file)) return;
+  try {
+    db.setConfig(JSON.parse(readFileSync(file, 'utf8')));
+    console.log('[pta] loaded saved db config');
+  } catch (err) {
+    console.error('[pta] ignoring invalid saved db config:', err);
+  }
 }
 
 /** Boot sequence: schema, settings, default admin, family sync, charges. */

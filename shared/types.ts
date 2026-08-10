@@ -373,6 +373,17 @@ export interface PtaDbStatus {
   host: string;
   port: number;
   database: string;
+  /** Database account currently in use (never the password). */
+  user: string;
+}
+
+/** Connection settings the user can edit from the title bar to reconnect. */
+export interface PtaDbConfig {
+  host: string;
+  port: number;
+  user: string;
+  password?: string;
+  database: string;
 }
 
 // ---- Window controls (custom title bar) ------------------------------------------------
@@ -391,8 +402,12 @@ export interface PtaApi {
   getDbStatus(): Promise<PtaDbStatus>;
   /** Subscribe to database status changes; returns an unsubscribe function. */
   onDbStatusChange(cb: (status: PtaDbStatus) => void): () => void;
+  /** Reconnect to a different MySQL server (host/port/user/password/database). */
+  connectDb(config: PtaDbConfig): Promise<PtaDbStatus>;
   // auth
   ptaLogin(username: string, password: string): Promise<PtaLoginResult>;
+  /** Current session in the main process (restores login after a reload). */
+  me(): Promise<PtaUser | null>;
   listPtaUsers(): Promise<PtaUser[]>;
   createPtaUser(input: PtaUserInput): Promise<PtaUser>;
   updatePtaUser(id: number, patch: Partial<PtaUserInput>): Promise<PtaUser>;
