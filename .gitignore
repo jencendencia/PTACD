@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.env
+*.local
+*.log
+.DS_Store
+typecheck_output.txt
