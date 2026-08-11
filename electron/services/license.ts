@@ -68,9 +68,12 @@ export async function activateLicense(key: string): Promise<PtaLicenseResult> {
     return { ok: false, error: `Could not reach the license server: ${(err as Error).message}` };
   }
 
-  const data = (await res.json().catch(() => null)) as { valid?: boolean; error?: string } | null;
+  // Servers vary in the field name for rejection text: our worker uses
+  // 'error', the legacy DTR worker uses 'message'. Read both so the real
+  // reason always reaches the user instead of a generic fallback.
+  const data = (await res.json().catch(() => null)) as { valid?: boolean; error?: string; message?: string } | null;
   if (!res.ok || !data || data.valid !== true) {
-    return { ok: false, error: (data && data.error) || 'Activation failed. Please check your license key.' };
+    return { ok: false, error: (data && (data.error || data.message)) || 'Activation failed. Please check your license key.' };
   }
 
   const activatedAt = new Date().toISOString();
