@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PTA_ROLE_LABELS } from '../../shared/types';
-import type { FeeComponent, FeeComponentInput, PtaRole, PtaSettings, PtaUser, PtaUserInput } from '../../shared/types';
+import type { FeeComponent, FeeComponentInput, PtaRole, PtaSettings, PtaUpdateStatus, PtaUser, PtaUserInput } from '../../shared/types';
 import { api } from '../lib/api';
 import { Modal, Spinner, Toast, fmtMoney } from '../components/shared';
 
@@ -13,7 +13,15 @@ export function SettingsScreen() {
   const [users, setUsers] = useState<PtaUser[] | null>(null);
   const [showComponent, setShowComponent] = useState<FeeComponent | 'new' | null>(null);
   const [showUser, setShowUser] = useState<'new' | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  // App updates
+  const [appVersion, setAppVersion] = useState('…');
+  const [updateStatus, setUpdateStatus] = useState<PtaUpdateStatus>({ status: 'idle' });
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [token, setToken] = useState('');
+  const [hasToken, setHasToken] = useState(false);
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   const load = useCallback(() => {
     void api.getPtaSettings().then(setSettings);
@@ -26,8 +34,16 @@ export function SettingsScreen() {
     load();
   }, [load]);
 
-  const notify = (msg: string) => {
-    setToast(msg);
+  // Updates: load the installed version, existing GitHub token (private repos),
+  // and subscribe to updater status pushed from the main process.
+  useEffect(() => {
+    void api.getAppVersion().then(setAppVersion).catch(() => undefined);
+    void api.getGithubToken().then((t) => setHasToken(Boolean(t))).catch(() => undefined);
+    return api.onUpdateStatus(setUpdateStatus);
+  }, []);
+
+  const notify = (msg: string, tone: 'success' | 'error' = 'success') => {
+    setToast({ message: msg, tone });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -44,6 +60,63 @@ export function SettingsScreen() {
     await api.updatePtaSettings(patch);
     notify('Saved');
     load();
+  };
+
+  // ---- Updates -------------------------------------------------------------------------
+  const checkForUpdates = async () => {
+    if (updateBusy) return;
+    setUpdateBusy(true);
+    try {
+      setUpdateStatus(await api.checkForUpdates());
+    } catch (err) {
+      setUpdateStatus({ status: 'error', message: (err as Error).message });
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const downloadUpdate = async () => {
+    if (updateBusy) return;
+    setUpdateBusy(true);
+    setUpdateStatus({ status: 'downloading', percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 });
+    try {
+      await api.downloadUpdate();
+    } catch (err) {
+      setUpdateStatus({ status: 'error', message: (err as Error).message });
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const saveToken = async () => {
+    if (tokenBusy) return;
+    setTokenBusy(true);
+    try {
+      await api.setGithubToken(token.trim());
+      setHasToken(true);
+      setToken('');
+      setShowToken(false);
+      notify('GitHub token saved');
+    } catch (err) {
+      notify((err as Error).message, 'error');
+    } finally {
+      setTokenBusy(false);
+    }
+  };
+
+  const clearToken = async () => {
+    if (tokenBusy) return;
+    setTokenBusy(true);
+    try {
+      await api.clearGithubToken();
+      setHasToken(false);
+      setToken('');
+      notify('GitHub token cleared');
+    } catch (err) {
+      notify((err as Error).message, 'error');
+    } finally {
+      setTokenBusy(false);
+    }
   };
 
   if (!settings) return <Spinner label="Loading settings…" />;
@@ -141,6 +214,70 @@ export function SettingsScreen() {
             <button className="btn-ghost" onClick={() => setShowUser('new')}>+ Add officer</button>
           </div>
         </div>
+
+        <div className="card">
+          <h3>Updates</h3>
+          <p className="field-hint">
+            New versions are distributed through GitHub Releases and installed by the app.
+          </p>
+          <div className="update-row">
+            <span className="text-dim">Installed version</span>
+            <strong className="mono">{appVersion}</strong>
+          </div>
+
+          {updateStatus.status !== 'idle' && (
+            <div className={`update-status ${updateTone(updateStatus)}`}>{updateText(updateStatus)}</div>
+          )}
+          {updateStatus.status === 'downloading' && (
+            <div className="update-progress" title={`${Math.round(updateStatus.percent)}%`}>
+              <div className="update-progress-fill" style={{ width: `${Math.min(100, updateStatus.percent)}%` }} />
+            </div>
+          )}
+
+          <div className="form-actions">
+            {updateStatus.status === 'available' && (
+              <button className="btn-primary" onClick={() => void downloadUpdate()} disabled={updateBusy}>
+                ⬇ Download update {updateStatus.version}
+              </button>
+            )}
+            {updateStatus.status === 'downloaded' && (
+              <button className="btn-primary" onClick={() => void api.installUpdate()}>
+                🔄 Restart &amp; install
+              </button>
+            )}
+            <button
+              className="btn-ghost"
+              onClick={() => void checkForUpdates()}
+              disabled={updateBusy || updateStatus.status === 'checking' || updateStatus.status === 'downloading'}
+            >
+              {updateStatus.status === 'checking' ? 'Checking…' : '🔍 Check for updates'}
+            </button>
+          </div>
+
+          <details className="token-accordion" open={showToken} onToggle={(e) => setShowToken(e.currentTarget.open)}>
+            <summary>GitHub token (private repos only)</summary>
+            <p className="field-hint">
+              Public releases need no token. If this app's repo is private, paste a fine-grained token with read
+              access to contents so updates can be downloaded.
+            </p>
+            {hasToken && <p className="field-hint pos">✓ A token is saved on this machine.</p>}
+            <div className="token-row">
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="ghp_…"
+                disabled={tokenBusy}
+              />
+              <button className="btn-ghost sm" onClick={() => void saveToken()} disabled={tokenBusy || !token.trim()}>
+                {tokenBusy ? 'Saving…' : 'Save'}
+              </button>
+              <button className="btn-ghost sm" onClick={() => void clearToken()} disabled={tokenBusy || !hasToken}>
+                Clear
+              </button>
+            </div>
+          </details>
+        </div>
       </div>
 
       {showComponent && (
@@ -165,9 +302,36 @@ export function SettingsScreen() {
         />
       )}
 
-      {toast && <Toast message={toast} />}
+      {toast && <Toast message={toast.message} tone={toast.tone} />}
     </div>
   );
+}
+
+function updateText(s: PtaUpdateStatus): string {
+  switch (s.status) {
+    case 'idle':
+      return '';
+    case 'checking':
+      return 'Checking for updates…';
+    case 'not-available':
+      return `You're on the latest version (${s.version}).`;
+    case 'available':
+      return `Update v${s.version} is available.`;
+    case 'downloading':
+      return `Downloading… ${Math.round(s.percent)}%`;
+    case 'downloaded':
+      return `Update v${s.version} downloaded. Restart the app to install it.`;
+    case 'error':
+      return `Update failed: ${s.message}`;
+    case 'unavailable':
+      return s.message;
+  }
+}
+
+function updateTone(s: PtaUpdateStatus): string {
+  if (s.status === 'error' || s.status === 'unavailable') return 'err';
+  if (s.status === 'available' || s.status === 'downloaded') return 'ok';
+  return 'info';
 }
 
 function ComponentModal({

@@ -3,6 +3,16 @@
 // pays, Admin manages users).
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { existsSync, readFileSync, promises as fs } from 'fs';
+import {
+  checkForUpdates,
+  clearGithubToken,
+  downloadUpdate,
+  getGithubToken,
+  initUpdater,
+  installUpdate,
+  setGithubToken,
+} from './services/updates';
+import { activateLicense, checkLicense, getMachineId } from './services/license';
 import * as path from 'path';
 import { db } from './db/connection';
 import { get as getSettings, load as loadSettings, update as updateSettings } from './db/settings';
@@ -83,6 +93,8 @@ import type {
   PtaDbConfig,
   PtaDbStatus,
   PtaFilePick,
+  PtaLicenseResult,
+  PtaLicenseStatus,
   PtaLoginResult,
   PtaRole,
   PtaSettings,
@@ -109,6 +121,8 @@ function requireRoles(...roles: PtaRole[]): PtaUser {
 }
 
 export function registerIpc(): void {
+  initUpdater();
+
   // ---- Database status (shown in the custom title bar) ---------------------------
   // Push live status changes to every window so the title bar stays in sync.
   db.on('status', (status: PtaDbStatus) => {
@@ -393,6 +407,41 @@ export function registerIpc(): void {
     const rows = await db.query<{ name: string }[]>('SELECT name FROM school_years ORDER BY name');
     return rows.map((r) => r.name);
   });
+
+  // ---- App updates (Settings screen — requires a signed-in user) ------------------------
+  ipcMain.handle('pta:getAppVersion', (): string => {
+    requireUser();
+    return app.getVersion();
+  });
+  ipcMain.handle('pta:checkForUpdates', () => {
+    requireUser();
+    return checkForUpdates();
+  });
+  ipcMain.handle('pta:downloadUpdate', () => {
+    requireUser();
+    return downloadUpdate();
+  });
+  ipcMain.handle('pta:installUpdate', () => {
+    requireUser();
+    installUpdate();
+  });
+  ipcMain.handle('pta:getGithubToken', (): string | null => {
+    requireUser();
+    return getGithubToken();
+  });
+  ipcMain.handle('pta:setGithubToken', (_e, token: string): void => {
+    requireUser();
+    setGithubToken(token);
+  });
+  ipcMain.handle('pta:clearGithubToken', (): void => {
+    requireUser();
+    clearGithubToken();
+  });
+
+  // ---- License / activation (before login) -------------------------------------------
+  ipcMain.handle('pta:checkLicense', (): PtaLicenseStatus => checkLicense());
+  ipcMain.handle('pta:activateLicense', (_e, key: string): Promise<PtaLicenseResult> => activateLicense(key));
+  ipcMain.handle('pta:getMachineId', (): string => getMachineId());
 
   // ---- Reports --------------------------------------------------------------------------
   ipcMain.handle('pta:dashboard', async (): Promise<PtaDashboard> => {

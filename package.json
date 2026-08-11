@@ -1,7 +1,7 @@
 {
   "name": "pta-cd",
   "productName": "PTA CD",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "PTA Collection & Disbursement system — shares the TapIn School database (Electron + React + MySQL).",
   "main": "dist-electron/electron/main.js",
   "author": "PTA CD",
@@ -20,9 +20,36 @@
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "mysql2": "^3.11.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "build": {
+    "appId": "com.jencendencia.pta-cd",
+    "productName": "PTA CD",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "jencendencia",
+      "repo": "PTACD",
+      "releaseType": "release"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.7.0",

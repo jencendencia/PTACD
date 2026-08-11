@@ -1,0 +1,11 @@
+# PTA CD license server — Cloudflare Worker config.
+# Deploy steps are in DEPLOY.md.
+name = "pta-license-server"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# 1. npx wrangler kv:namespace create LICENSE_KV
+# 2. Paste the returned id below (see DEPLOY.md).
+[[kv_namespaces]]
+binding = "LICENSE_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"

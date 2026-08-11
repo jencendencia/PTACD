@@ -1,10 +1,12 @@
-// PTA CD shell: login gate + sidebar navigation across all modules.
+// PTA CD shell: license gate → login gate → sidebar navigation across all modules.
 import { useEffect, useState } from 'react';
 import { PTA_ROLE_LABELS } from '../shared/types';
-import type { PtaSettings, PtaUser } from '../shared/types';
+import type { PtaLicenseStatus, PtaSettings, PtaUser } from '../shared/types';
 import { api } from './lib/api';
 import { TitleBar } from './components/TitleBar';
+import { Spinner } from './components/shared';
 import { LoginScreen } from './screens/Login';
+import { ActivationScreen } from './screens/Activation';
 import { DashboardScreen } from './screens/Dashboard';
 import { CollectionsScreen } from './screens/Collections';
 import { FamiliesScreen } from './screens/Families';
@@ -29,13 +31,18 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
 
 export default function App() {
   const [user, setUser] = useState<PtaUser | null>(null);
+  const [license, setLicense] = useState<PtaLicenseStatus | null>(null);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [settings, setSettings] = useState<PtaSettings | null>(null);
   const [schoolYears, setSchoolYears] = useState<string[]>([]);
 
-  // Restore a session the main process still holds (e.g. after a renderer
-  // reload that followed a database reconnect from the title bar).
+  // Check whether this machine is activated, and restore a session the main
+  // process still holds (e.g. after a renderer reload that followed a database
+  // reconnect from the title bar).
   useEffect(() => {
+    // Fail closed: if the license check errors, keep the app locked rather
+    // than silently skipping activation (re-activating the same machine is free).
+    void api.checkLicense().then(setLicense).catch(() => setLicense({ activated: false }));
     void api.me().then((u) => {
       if (u) setUser(u);
     });
@@ -66,7 +73,15 @@ export default function App() {
       <TitleBar settings={settings} schoolYears={schoolYears} onSwitchYear={(y) => void switchYear(y)} />
       <div className="pta-body">
         {!user ? (
-          <LoginScreen onLogin={(u) => setUser(u)} />
+          license === null ? (
+            <div className="login-screen">
+              <Spinner label="Checking license…" />
+            </div>
+          ) : license.activated ? (
+            <LoginScreen onLogin={(u) => setUser(u)} />
+          ) : (
+            <ActivationScreen onActivated={() => void api.checkLicense().then(setLicense)} />
+          )
         ) : (
           <div className="pta-app">
             <aside className="pta-sidebar">

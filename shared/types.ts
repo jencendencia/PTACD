@@ -386,6 +386,34 @@ export interface PtaDbConfig {
   database: string;
 }
 
+// ---- App updates (electron-updater + GitHub Releases) ------------------------------
+export type PtaUpdateStatus =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'not-available'; version: string }
+  | { status: 'available'; version: string; releaseDate?: string }
+  | { status: 'downloading'; percent: number; bytesPerSecond: number; transferred: number; total: number }
+  | { status: 'downloaded'; version: string }
+  | { status: 'error'; message: string }
+  /** Dev / unpackaged app where the updater cannot run. */
+  | { status: 'unavailable'; message: string };
+
+// ---- License / activation (per-machine, Cloudflare Worker license server) ----------
+export interface PtaLicenseStatus {
+  activated: boolean;
+  licenseKey?: string;
+  machineId?: string;
+  activatedAt?: string;
+}
+
+export interface PtaLicenseResult {
+  ok: boolean;
+  error?: string;
+  licenseKey?: string;
+  machineId?: string;
+  activatedAt?: string;
+}
+
 // ---- Window controls (custom title bar) ------------------------------------------------
 export interface PtaWindowControls {
   minimize(): Promise<void>;
@@ -456,6 +484,22 @@ export interface PtaApi {
   getPtaSettings(): Promise<PtaSettings>;
   updatePtaSettings(patch: Partial<PtaSettings>): Promise<PtaSettings>;
   listSchoolYears(): Promise<string[]>;
+  // app updates
+  getAppVersion(): Promise<string>;
+  /** Starts a check; returns the immediate state ('checking' or 'unavailable'). */
+  checkForUpdates(): Promise<PtaUpdateStatus>;
+  downloadUpdate(): Promise<void>;
+  installUpdate(): Promise<void>;
+  getGithubToken(): Promise<string | null>;
+  setGithubToken(token: string): Promise<void>;
+  clearGithubToken(): Promise<void>;
+  /** Subscribe to updater status changes; returns an unsubscribe function. */
+  onUpdateStatus(cb: (status: PtaUpdateStatus) => void): () => void;
+  // license / activation
+  checkLicense(): Promise<PtaLicenseStatus>;
+  activateLicense(key: string): Promise<PtaLicenseResult>;
+  /** Stable per-machine identifier (used by the license server). */
+  getMachineId(): Promise<string>;
   // reports
   getDashboard(): Promise<PtaDashboard>;
   fundBalances(): Promise<FundBalanceRow[]>;

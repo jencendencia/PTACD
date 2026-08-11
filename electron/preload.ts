@@ -31,8 +31,11 @@ import type {
   PtaDbConfig,
   PtaDbStatus,
   PtaFilePick,
+  PtaLicenseResult,
+  PtaLicenseStatus,
   PtaLoginResult,
   PtaSettings,
+  PtaUpdateStatus,
   PtaUser,
   PtaUserInput,
   PtaWindowControls,
@@ -119,6 +122,24 @@ const api: PtaApi = {
   updatePtaSettings: (patch: Partial<PtaSettings>) =>
     ipcRenderer.invoke('pta:updateSettings', patch) as Promise<PtaSettings>,
   listSchoolYears: () => ipcRenderer.invoke('pta:listSchoolYears') as Promise<string[]>,
+
+  getAppVersion: () => ipcRenderer.invoke('pta:getAppVersion') as Promise<string>,
+  checkForUpdates: () => ipcRenderer.invoke('pta:checkForUpdates') as Promise<PtaUpdateStatus>,
+  downloadUpdate: () => ipcRenderer.invoke('pta:downloadUpdate') as Promise<void>,
+  installUpdate: () => ipcRenderer.invoke('pta:installUpdate') as Promise<void>,
+  getGithubToken: () => ipcRenderer.invoke('pta:getGithubToken') as Promise<string | null>,
+  setGithubToken: (token: string) => ipcRenderer.invoke('pta:setGithubToken', token) as Promise<void>,
+  clearGithubToken: () => ipcRenderer.invoke('pta:clearGithubToken') as Promise<void>,
+  onUpdateStatus: (cb: (status: PtaUpdateStatus) => void) => {
+    const listener = (_e: unknown, status: PtaUpdateStatus) => cb(status);
+    ipcRenderer.on('update:status', listener);
+    return () => ipcRenderer.removeListener('update:status', listener);
+  },
+
+  checkLicense: () => ipcRenderer.invoke('pta:checkLicense') as Promise<PtaLicenseStatus>,
+  activateLicense: (key: string) =>
+    ipcRenderer.invoke('pta:activateLicense', key) as Promise<PtaLicenseResult>,
+  getMachineId: () => ipcRenderer.invoke('pta:getMachineId') as Promise<string>,
 
   getDashboard: () => ipcRenderer.invoke('pta:dashboard') as Promise<PtaDashboard>,
   fundBalances: () => ipcRenderer.invoke('pta:fundBalances') as Promise<FundBalanceRow[]>,

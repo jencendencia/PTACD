@@ -34,9 +34,12 @@ import type {
   PtaDbConfig,
   PtaDbStatus,
   PtaFilePick,
+  PtaLicenseResult,
+  PtaLicenseStatus,
   PtaLoginResult,
   PtaRole,
   PtaSettings,
+  PtaUpdateStatus,
   PtaUser,
   PtaUserInput,
   SectionCollectionRow,
@@ -717,6 +720,43 @@ class MockApi implements PtaApi {
   async listSchoolYears(): Promise<string[]> {
     this.requireUser();
     return [DEMO_YEAR, '2025 - 2026'];
+  }
+
+  // ---- app updates (browser mock: updater lives in the packaged app) --------------------------
+  async getAppVersion(): Promise<string> {
+    return '0.1.0 (dev mock)';
+  }
+  async checkForUpdates(): Promise<PtaUpdateStatus> {
+    return { status: 'unavailable', message: 'Updates are only available in the installed desktop app.' };
+  }
+  async downloadUpdate(): Promise<void> {
+    throw new Error('Updates are only available in the installed desktop app.');
+  }
+  async installUpdate(): Promise<void> {
+    throw new Error('Updates are only available in the installed desktop app.');
+  }
+  async getGithubToken(): Promise<string | null> {
+    return null;
+  }
+  async setGithubToken(): Promise<void> {
+    /* no-op in mock mode */
+  }
+  async clearGithubToken(): Promise<void> {
+    /* no-op in mock mode */
+  }
+  onUpdateStatus(): () => void {
+    return () => undefined;
+  }
+
+  // ---- license / activation (browser mock: always activated so the demo flows) ---------------
+  async checkLicense(): Promise<PtaLicenseStatus> {
+    return { activated: true, licenseKey: 'DTR-MOCK-MOCK-MOCK', machineId: 'MOCK-MACHINE', activatedAt: nowIso() };
+  }
+  async activateLicense(_key: string): Promise<PtaLicenseResult> {
+    return { ok: false, error: 'Activation is only available in the installed desktop app.' };
+  }
+  async getMachineId(): Promise<string> {
+    return 'DEMO-MACHINE-ID';
   }
 
   // ---- reports ----------------------------------------------------------------------------------
