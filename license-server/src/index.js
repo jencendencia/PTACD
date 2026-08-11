@@ -11,7 +11,9 @@
 // ⚠ Change this before deploying — it is the only gate on admin endpoints.
 const ADMIN_SECRET = 'CHANGE_ME_admin_secret';
 
-// Unambiguous characters (no 0/O/1/I) — key format DTR-XXXX-XXXX-XXXX (doc §2.6).
+// Unambiguous characters (no 0/O/1/I) — key format DTR-XXXX-XXXX-XXXX-XXXX,
+// matching the existing production license server (doc §2.6 says 4 groups, but
+// the deployed server issues 4 groups after the DTR prefix — keep parity).
 const KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const KEY_PREFIX = 'DTR';
 
@@ -40,7 +42,7 @@ function generateKey() {
     for (let i = 0; i < 4; i++) out += randomAlphabetChar();
     return out;
   };
-  return `${KEY_PREFIX}-${group()}-${group()}-${group()}`;
+  return `${KEY_PREFIX}-${group()}-${group()}-${group()}-${group()}`;
 }
 
 async function handleValidate(request, env) {

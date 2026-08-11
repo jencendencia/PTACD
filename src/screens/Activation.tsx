@@ -3,20 +3,27 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
-/** Formats input as DTR-XXXX-XXXX-XXXX (16 unambiguous chars, grouped in 4s). */
-const fmtKey = (raw: string): string =>
-  raw
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 16)
-    .replace(/(.{4})(?=.)/g, '$1-');
+const KEY_PREFIX = 'DTR';
+// Real server keys are 5 segments (DTR-XXXX-XXXX-XXXX-XXXX); our scaffolded
+// worker issues 4-segment keys (DTR-XXXX-XXXX-XXXX). Accept both, never truncate.
+const KEY_RE = /^DTR-[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){2,3}$/;
+
+/** Formats input as DTR-XXXX-XXXX (…) — keeps the DTR prefix, groups the rest in 4s. */
+const fmtKey = (raw: string): string => {
+  const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!clean) return '';
+  const hasPrefix = clean.startsWith(KEY_PREFIX);
+  const rest = hasPrefix ? clean.slice(KEY_PREFIX.length, KEY_PREFIX.length + 16) : clean.slice(0, 16);
+  const groups = rest.match(/.{1,4}/g) ?? [];
+  return hasPrefix ? [KEY_PREFIX, ...groups].join('-') : groups.join('-');
+};
 
 export function ActivationScreen({ onActivated }: { onActivated: () => void }) {
   const [key, setKey] = useState('');
   const [machineId, setMachineId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const valid = key.replace(/-/g, '').length === 16;
+  const valid = KEY_RE.test(key);
 
   useEffect(() => {
     void api.getMachineId().then(setMachineId).catch(() => undefined);
@@ -58,7 +65,7 @@ export function ActivationScreen({ onActivated }: { onActivated: () => void }) {
             <input
               value={key}
               onChange={(e) => setKey(fmtKey(e.target.value))}
-              placeholder="DTR-XXXX-XXXX-XXXX"
+              placeholder="DTR-XXXX-XXXX-XXXX-XXXX"
               className="mono"
               autoFocus
               autoComplete="off"

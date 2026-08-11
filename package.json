@@ -1,7 +1,7 @@
 {
   "name": "pta-cd",
   "productName": "PTA CD",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "PTA Collection & Disbursement system — shares the TapIn School database (Electron + React + MySQL).",
   "main": "dist-electron/electron/main.js",
   "author": "PTA CD",
