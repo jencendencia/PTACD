@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS pta_users (
   password_hash VARCHAR(255) DEFAULT NULL,
   full_name VARCHAR(120) NOT NULL DEFAULT '',
   role ENUM('admin','president','vice_president','treasurer','secretary','auditor') NOT NULL DEFAULT 'secretary',
+  photo MEDIUMTEXT DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_pta_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS pta_collections (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_pta_collection_date (collected_at),
   KEY idx_pta_collection_family (family_id),
+  UNIQUE KEY uq_pta_collections_or_no (or_no),
   CONSTRAINT fk_pta_collection_family FOREIGN KEY (family_id) REFERENCES pta_families(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -135,6 +137,7 @@ CREATE TABLE IF NOT EXISTS pta_disbursements (
   notes VARCHAR(255) NOT NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_pta_dv_status (status),
+  UNIQUE KEY uq_pta_dv_no (dv_no),
   CONSTRAINT fk_pta_dv_fund FOREIGN KEY (fund_id) REFERENCES pta_funds(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -195,5 +198,52 @@ export async function ensureSchema(query: (sql: string, params?: unknown[]) => P
   )) as { n: number }[];
   if (Number(hasReceivedBy?.n ?? 0) === 0) {
     await query("ALTER TABLE pta_disbursements ADD COLUMN received_by VARCHAR(120) NOT NULL DEFAULT '' AFTER payee");
+  }
+
+  // Officer profile photos (stored as base64 data URLs so every machine sharing
+  // the MySQL server sees the same photo).
+  const [hasUserPhoto] = (await query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'pta_users' AND column_name = 'photo'`,
+  )) as { n: number }[];
+  if (Number(hasUserPhoto?.n ?? 0) === 0) {
+    await query('ALTER TABLE pta_users ADD COLUMN photo MEDIUMTEXT DEFAULT NULL AFTER role');
+  }
+
+  // ---- Unique receipt/voucher numbers (multi-user hardening) --------------
+  // OR/DV numbers were generated with a COUNT-then-insert race, so two
+  // machines could mint the same number. Dedupe any rows that already
+  // collided (suffix the later duplicates with their id so receipts stay
+  // traceable), then add UNIQUE keys — future races fail loudly instead of
+  // silently duplicating receipts.
+  await query(
+    `UPDATE pta_collections SET or_no = CONCAT(or_no, '-', id)
+     WHERE id NOT IN (
+       SELECT min_id FROM (
+         SELECT MIN(id) AS min_id FROM pta_collections GROUP BY or_no
+       ) AS keep
+     )`,
+  );
+  await query(
+    `UPDATE pta_disbursements SET dv_no = CONCAT(dv_no, '-', id)
+     WHERE id NOT IN (
+       SELECT min_id FROM (
+         SELECT MIN(id) AS min_id FROM pta_disbursements GROUP BY dv_no
+       ) AS keep
+     )`,
+  );
+  const [hasOrIdx] = (await query(
+    `SELECT COUNT(*) AS n FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'pta_collections' AND index_name = 'uq_pta_collections_or_no'`,
+  )) as { n: number }[];
+  if (Number(hasOrIdx?.n ?? 0) === 0) {
+    await query('ALTER TABLE pta_collections ADD UNIQUE KEY uq_pta_collections_or_no (or_no)');
+  }
+  const [hasDvIdx] = (await query(
+    `SELECT COUNT(*) AS n FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'pta_disbursements' AND index_name = 'uq_pta_dv_no'`,
+  )) as { n: number }[];
+  if (Number(hasDvIdx?.n ?? 0) === 0) {
+    await query('ALTER TABLE pta_disbursements ADD UNIQUE KEY uq_pta_dv_no (dv_no)');
   }
 }

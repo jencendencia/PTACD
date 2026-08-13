@@ -17,14 +17,19 @@ import * as path from 'path';
 import { db } from './db/connection';
 import { get as getSettings, load as loadSettings, update as updateSettings } from './db/settings';
 import {
+  changePassword,
+  changeUserPassword,
   createUser,
   deleteUser,
   listUsers,
   login,
+  readUserPhotoFile,
   seedDefaultAdmin,
+  setUserPhoto,
   updateUser,
 } from './services/auth';
 import { getFamilyDetail, listFamilies, syncFamilies } from './services/families';
+import { withJobLock } from './services/job-lock';
 import { listCharges, recomputeCharges } from './services/charges';
 import { deleteFund, listFunds, saveFund } from './services/funds';
 import {
@@ -194,17 +199,62 @@ export function registerIpc(): void {
   });
   ipcMain.handle('pta:updateUser', async (_e, id: number, patch: Partial<PtaUserInput>): Promise<PtaUser> => {
     requireRoles('admin');
-    return updateUser(id, patch);
+    const updated = await updateUser(id, patch);
+    // Keep the live session in sync when an officer edits their own account
+    // (e.g. renames or re-roles themselves) so pta:me on reload is current.
+    if (currentUser && updated.id === currentUser.id) currentUser = updated;
+    return updated;
   });
   ipcMain.handle('pta:deleteUser', async (_e, id: number): Promise<void> => {
     requireRoles('admin');
     return deleteUser(id);
   });
+  // Profile photo picker (image-only dialog). The file is read in main and
+  // returned as a data URL so the renderer can preview it before saving;
+  // the 2 MB size limit is enforced here, at pick time.
+  ipcMain.handle('pta:pickUserPhoto', async (): Promise<PtaFilePick | null> => {
+    requireUser();
+    const res = await dialog.showOpenDialog({
+      title: 'Choose profile photo',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }],
+    });
+    if (res.canceled || !res.filePaths[0]) return null;
+    return readUserPhotoFile(res.filePaths[0]);
+  });
+  ipcMain.handle('pta:setUserPhoto', async (_e, id: number, file: PtaFilePick): Promise<PtaUser> => {
+    // Admins manage everyone's photo; other roles may only set their own.
+    const u = requireUser();
+    if (u.role !== 'admin' && u.id !== id) throw new Error('You can only change your own photo.');
+    const updated = await setUserPhoto(id, file);
+    if (currentUser && updated.id === currentUser.id) currentUser = updated;
+    return updated;
+  });
+  // Self-service password change — the old/current password is verified in the service.
+  ipcMain.handle('pta:changePassword', async (_e, oldPassword: string, newPassword: string): Promise<void> => {
+    const u = requireUser();
+    return changePassword(u.id, oldPassword, newPassword);
+  });
+  // Admin changes an officer's password — the officer's CURRENT password is
+  // required and verified, so a password can never be replaced blind.
+  ipcMain.handle(
+    'pta:changeUserPassword',
+    async (_e, id: number, oldPassword: string, newPassword: string): Promise<PtaUser> => {
+      requireRoles('admin');
+      const updated = await changeUserPassword(id, oldPassword, newPassword);
+      if (currentUser && updated.id === currentUser.id) currentUser = updated;
+      return updated;
+    },
+  );
 
   // ---- Families -------------------------------------------------------------
   ipcMain.handle('pta:syncFamilies', async (): Promise<number> => {
     requireUser();
-    return syncFamilies();
+    // Wait for a peer's in-progress rebuild (up to 30s) so an admin-initiated
+    // sync always completes; bootPta uses a skip-if-busy lock instead.
+    const n = await withJobLock('pta:bootstrap', () => syncFamilies(), 30);
+    if (n === null) throw new Error('Another machine is syncing families right now — try again in a moment.');
+    return n;
   });
   ipcMain.handle('pta:listFamilies', async (_e, search?: string): Promise<Family[]> => {
     requireUser();
@@ -260,7 +310,9 @@ export function registerIpc(): void {
   });
   ipcMain.handle('pta:recomputeCharges', async (): Promise<number> => {
     requireUser();
-    return recomputeCharges();
+    const n = await withJobLock('pta:bootstrap', () => recomputeCharges(), 30);
+    if (n === null) throw new Error('Another machine is recomputing charges right now — try again in a moment.');
+    return n;
   });
 
   // ---- Funds & distribution rules ----------------------------------------------
@@ -515,14 +567,23 @@ export function configureDbFromDisk(): void {
 /** Boot sequence: schema, settings, default admin, family sync, charges. */
 export async function bootPta(): Promise<void> {
   const { ensureSchema } = await import('./db/schema');
-  await ensureSchema(db.query.bind(db));
+  // Schema migration lock: only one machine may ALTER the shared schema at a
+  // time (two machines booting a fresh DB could both run the same ALTER).
+  // Waits up to 60s for a busy peer; a skip is retried on the next reconnect.
+  await withJobLock('pta:schema', () => ensureSchema(db.query.bind(db)), 60);
   await loadSettings();
   await seedDefaultAdmin();
   const year = getSettings().school_year;
   if (!year) await loadSettings();
   // Attachment storage lives under the app data dir.
   setAttachmentsDir(path.join(app.getPath('userData'), 'attachments'));
-  // Family + charge bootstrap (safe even when the students table is new/empty).
-  await syncFamilies().catch((err) => console.error('[pta] family sync failed:', err));
-  await recomputeCharges().catch((err) => console.error('[pta] charge recompute failed:', err));
+  // Family + charge rebuild is idempotent but racy when two machines boot at
+  // once (both read "existing" rows and both try the same INSERTs). Leader
+  // election: skip when a peer is already rebuilding — the shared tables are
+  // correct either way, and the next reconnect re-runs this. The manual
+  // buttons use a wait timeout so an admin-initiated sync always completes.
+  await withJobLock('pta:bootstrap', async () => {
+    await syncFamilies().catch((err) => console.error('[pta] family sync failed:', err));
+    await recomputeCharges().catch((err) => console.error('[pta] charge recompute failed:', err));
+  }, 0);
 }

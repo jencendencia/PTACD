@@ -62,6 +62,13 @@ const api: PtaApi = {
   updatePtaUser: (id: number, patch: Partial<PtaUserInput>) =>
     ipcRenderer.invoke('pta:updateUser', id, patch) as Promise<PtaUser>,
   deletePtaUser: (id: number) => ipcRenderer.invoke('pta:deleteUser', id) as Promise<void>,
+  pickUserPhoto: () => ipcRenderer.invoke('pta:pickUserPhoto') as Promise<PtaFilePick | null>,
+  setUserPhoto: (userId: number, file: PtaFilePick) =>
+    ipcRenderer.invoke('pta:setUserPhoto', userId, file) as Promise<PtaUser>,
+  changePassword: (oldPassword: string, newPassword: string) =>
+    ipcRenderer.invoke('pta:changePassword', oldPassword, newPassword) as Promise<void>,
+  changeUserPassword: (userId: number, oldPassword: string, newPassword: string) =>
+    ipcRenderer.invoke('pta:changeUserPassword', userId, oldPassword, newPassword) as Promise<PtaUser>,
 
   syncFamilies: () => ipcRenderer.invoke('pta:syncFamilies') as Promise<number>,
   listFamilies: (search?: string) => ipcRenderer.invoke('pta:listFamilies', search) as Promise<Family[]>,

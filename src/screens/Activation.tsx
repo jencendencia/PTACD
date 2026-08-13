@@ -1,7 +1,7 @@
 // License activation screen — shown on first launch, before the login screen,
 // until this machine is activated with a valid key (see APP_UPDATE_AND_ACTIVATION_PROCESS.md §2).
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, errMsg } from '../lib/api';
 
 const KEY_PREFIX = 'DTR';
 // Real server keys are 5 segments (DTR-XXXX-XXXX-XXXX-XXXX); our scaffolded
@@ -41,7 +41,7 @@ export function ActivationScreen({ onActivated }: { onActivated: () => void }) {
         setError(res.error ?? 'Activation failed.');
       }
     } catch (err) {
-      setError(`Could not reach the license server: ${(err as Error).message}`);
+      setError(`Could not reach the license server: ${errMsg(err)}`);
     } finally {
       setBusy(false);
     }

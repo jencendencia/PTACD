@@ -24,6 +24,8 @@ export interface PtaUser {
   full_name: string;
   role: PtaRole;
   created_at: string;
+  /** Avatar photo as a data URL (image/*;base64,…); null when none is set. */
+  photo: string | null;
 }
 
 export interface PtaUserInput {
@@ -31,6 +33,8 @@ export interface PtaUserInput {
   full_name: string;
   role: PtaRole;
   password?: string;
+  /** Set a photo data URL, or null to remove the photo. */
+  photo?: string | null;
 }
 
 export interface PtaLoginResult {
@@ -447,6 +451,14 @@ export interface PtaApi {
   createPtaUser(input: PtaUserInput): Promise<PtaUser>;
   updatePtaUser(id: number, patch: Partial<PtaUserInput>): Promise<PtaUser>;
   deletePtaUser(id: number): Promise<void>;
+  /** Opens a photo picker dialog; returns null when cancelled (Electron only). */
+  pickUserPhoto(): Promise<PtaFilePick | null>;
+  /** Saves the picked file as the user's profile photo and returns the updated user. */
+  setUserPhoto(userId: number, file: PtaFilePick): Promise<PtaUser>;
+  /** Changes the CURRENT user's password — `oldPassword` must match. */
+  changePassword(oldPassword: string, newPassword: string): Promise<void>;
+  /** Admin changes an officer's password — the officer's CURRENT password must be provided. */
+  changeUserPassword(userId: number, oldPassword: string, newPassword: string): Promise<PtaUser>;
   // families
   syncFamilies(): Promise<number>;
   listFamilies(search?: string): Promise<Family[]>;
@@ -533,4 +545,7 @@ export interface PtaFilePick {
   path: string | null;
   mime: string;
   size: number;
+  /** File contents as a data URL — set by the renderer in browser mock mode
+   *  (where no main process can read `path`). */
+  dataUrl?: string;
 }

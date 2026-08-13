@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PTA_ROLE_LABELS } from '../../shared/types';
-import type { FeeComponent, FeeComponentInput, PtaRole, PtaSettings, PtaUpdateStatus, PtaUser, PtaUserInput } from '../../shared/types';
-import { api } from '../lib/api';
-import { Modal, Spinner, Toast, fmtMoney } from '../components/shared';
+import type { FeeComponent, FeeComponentInput, PtaFilePick, PtaRole, PtaSettings, PtaUpdateStatus, PtaUser, PtaUserInput } from '../../shared/types';
+import { api, errMsg, isElectron } from '../lib/api';
+import { Modal, Spinner, Toast, UserAvatar, fmtMoney } from '../components/shared';
 
 const ROLES: PtaRole[] = ['admin', 'president', 'vice_president', 'treasurer', 'secretary', 'auditor'];
 
-export function SettingsScreen() {
+export function SettingsScreen({ user, onUserChanged }: { user: PtaUser; onUserChanged: (u: PtaUser) => void }) {
   const [settings, setSettings] = useState<PtaSettings | null>(null);
   const [schoolYears, setSchoolYears] = useState<string[]>([]);
   const [components, setComponents] = useState<FeeComponent[] | null>(null);
   const [users, setUsers] = useState<PtaUser[] | null>(null);
   const [showComponent, setShowComponent] = useState<FeeComponent | 'new' | null>(null);
-  const [showUser, setShowUser] = useState<'new' | null>(null);
+  const [showUser, setShowUser] = useState<PtaUser | 'new' | null>(null);
+  const [showChangePw, setShowChangePw] = useState(false);
+  const [myPhotoBusy, setMyPhotoBusy] = useState(false);
+  const myPhotoRef = useRef<HTMLInputElement>(null);
   const [componentToDelete, setComponentToDelete] = useState<FeeComponent | null>(null);
   const [deletingComponent, setDeletingComponent] = useState(false);
   const [deleteComponentError, setDeleteComponentError] = useState<string | null>(null);
@@ -33,6 +36,33 @@ export function SettingsScreen() {
     void api.listFeeComponents().then(setComponents);
     void api.listPtaUsers().then(setUsers).catch(() => setUsers(null));
   }, []);
+
+  const pickMyPhoto = async () => {
+    if (myPhotoBusy) return;
+    if (!isElectron) {
+      myPhotoRef.current?.click();
+      return;
+    }
+    let picked: PtaFilePick | null = null;
+    try {
+      picked = await api.pickUserPhoto();
+    } catch (err) {
+      notify(errMsg(err), 'error');
+      return;
+    }
+    if (!picked) return;
+    setMyPhotoBusy(true);
+    try {
+      const updated = await api.setUserPhoto(user.id, picked);
+      onUserChanged(updated);
+      notify('Photo updated');
+      load();
+    } catch (err) {
+      notify(errMsg(err), 'error');
+    } finally {
+      setMyPhotoBusy(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -87,7 +117,7 @@ export function SettingsScreen() {
       notify('Component deleted');
       load();
     } catch (err) {
-      setDeleteComponentError((err as Error).message);
+      setDeleteComponentError(errMsg(err));
     } finally {
       setDeletingComponent(false);
     }
@@ -100,7 +130,7 @@ export function SettingsScreen() {
     try {
       setUpdateStatus(await api.checkForUpdates());
     } catch (err) {
-      setUpdateStatus({ status: 'error', message: (err as Error).message });
+      setUpdateStatus({ status: 'error', message: errMsg(err) });
     } finally {
       setUpdateBusy(false);
     }
@@ -113,7 +143,7 @@ export function SettingsScreen() {
     try {
       await api.downloadUpdate();
     } catch (err) {
-      setUpdateStatus({ status: 'error', message: (err as Error).message });
+      setUpdateStatus({ status: 'error', message: errMsg(err) });
     } finally {
       setUpdateBusy(false);
     }
@@ -129,7 +159,7 @@ export function SettingsScreen() {
       setShowToken(false);
       notify('GitHub token saved');
     } catch (err) {
-      notify((err as Error).message, 'error');
+      notify(errMsg(err), 'error');
     } finally {
       setTokenBusy(false);
     }
@@ -144,7 +174,7 @@ export function SettingsScreen() {
       setToken('');
       notify('GitHub token cleared');
     } catch (err) {
-      notify((err as Error).message, 'error');
+      notify(errMsg(err), 'error');
     } finally {
       setTokenBusy(false);
     }
@@ -162,6 +192,47 @@ export function SettingsScreen() {
       </div>
 
       <div className="settings-grid">
+        <div className="card">
+          <h3>My account</h3>
+          <div className="my-account">
+            <UserAvatar user={user} size={64} />
+            <div className="my-account-info">
+              <strong>{user.full_name}</strong>
+              <span className="text-dim">@{user.username} · {PTA_ROLE_LABELS[user.role]}</span>
+            </div>
+            <div className="my-account-actions">
+              <input
+                ref={myPhotoRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      void api
+                        .setUserPhoto(user.id, { name: f.name, path: null, mime: f.type, size: f.size, dataUrl: String(reader.result) })
+                        .then((updated) => {
+                          onUserChanged(updated);
+                          notify('Photo updated');
+                          load();
+                        })
+                        .catch((err) => notify(errMsg(err), 'error'));
+                    };
+                    reader.readAsDataURL(f);
+                  }
+                  e.target.value = '';
+                }}
+              />
+              <button className="btn-ghost" onClick={() => void pickMyPhoto()} disabled={myPhotoBusy}>
+                📷 {myPhotoBusy ? 'Uploading…' : 'Upload photo'}
+              </button>
+              <button className="btn-ghost" onClick={() => setShowChangePw(true)}>🔑 Change password</button>
+            </div>
+          </div>
+        </div>
+
         <div className="card">
           <h3>School year</h3>
           <p className="field-hint">Charges are computed for this school year. Changing it recomputes all charges.</p>
@@ -266,17 +337,23 @@ export function SettingsScreen() {
           <p className="field-hint">PTA officers sign in to this app. Roles gate approvals and reports.</p>
           <table className="table">
             <thead>
-              <tr><th>Username</th><th>Full name</th><th>Role</th></tr>
+              <tr><th>Photo</th><th>Username</th><th>Full name</th><th>Role</th><th></th></tr>
             </thead>
             <tbody>
               {users?.map((u) => (
                 <tr key={u.id}>
+                  <td><UserAvatar user={u} size={30} /></td>
                   <td className="mono">{u.username}</td>
                   <td>{u.full_name}</td>
                   <td><span className="pill pill-dim">{PTA_ROLE_LABELS[u.role]}</span></td>
+                  <td>
+                    <div className="row-actions">
+                      <button className="btn-icon" title="Edit account" onClick={() => setShowUser(u)}>✎</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {users?.length === 0 && <tr><td colSpan={3} className="empty-cell">No officer accounts.</td></tr>}
+              {users?.length === 0 && <tr><td colSpan={5} className="empty-cell">No officer accounts.</td></tr>}
             </tbody>
           </table>
           <div className="form-actions">
@@ -380,11 +457,25 @@ export function SettingsScreen() {
       )}
       {showUser && (
         <UserModal
+          existing={showUser === 'new' ? null : showUser}
+          currentUserId={user.id}
+          onUserChanged={onUserChanged}
+          notify={notify}
           onClose={() => setShowUser(null)}
           onSaved={() => {
             setShowUser(null);
-            notify('Officer account added');
+            notify(showUser === 'new' ? 'Officer account added' : 'Officer account updated');
             load();
+          }}
+        />
+      )}
+      {showChangePw && (
+        <ChangePasswordModal
+          notify={notify}
+          onClose={() => setShowChangePw(false)}
+          onChanged={() => {
+            setShowChangePw(false);
+            notify('Password changed');
           }}
         />
       )}
@@ -448,7 +539,7 @@ function ComponentModal({
       await api.saveFeeComponent({ ...form, code: form.code.trim(), label: form.label.trim() });
       onSaved();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     }
   };
 
@@ -507,25 +598,97 @@ function ComponentModal({
   );
 }
 
-function UserModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState<PtaUserInput>({ username: '', full_name: '', role: 'secretary', password: '' });
+function UserModal({
+  existing,
+  currentUserId,
+  onUserChanged,
+  notify,
+  onClose,
+  onSaved,
+}: {
+  existing: PtaUser | null;
+  currentUserId: number;
+  onUserChanged: (u: PtaUser) => void;
+  notify: (msg: string, tone?: 'success' | 'error') => void;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<PtaUserInput>({
+    username: existing?.username ?? '',
+    full_name: existing?.full_name ?? '',
+    role: existing?.role ?? 'secretary',
+    password: '',
+  });
   const [confirm, setConfirm] = useState('');
+  const [currentPw, setCurrentPw] = useState('');
+  const [photoPick, setPhotoPick] = useState<PtaFilePick | null>(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const save = async () => {
-    if (!form.username.trim() || !form.full_name.trim()) return setError('Username and full name are required.');
-    if (String(form.password ?? '').length < 4) return setError('Password must be at least 4 characters.');
-    if (form.password !== confirm) return setError('Passwords do not match.');
-    try {
-      await api.createPtaUser(form);
-      onSaved();
-    } catch (err) {
-      setError((err as Error).message);
+  const pickPhoto = async () => {
+    if (isElectron) {
+      try {
+        const picked = await api.pickUserPhoto();
+        if (picked) {
+          setPhotoPick(picked);
+          setRemovePhoto(false);
+        }
+      } catch (err) {
+        setError(errMsg(err));
+      }
+    } else {
+      fileRef.current?.click();
     }
   };
 
+  const save = async () => {
+    if (!form.username.trim() || !form.full_name.trim()) return setError('Username and full name are required.');
+    const pw = String(form.password ?? '');
+    if (existing && pw && pw.length < 4) return setError('Password must be at least 4 characters.');
+    if (!existing && pw.length < 4) return setError('Password must be at least 4 characters.');
+    if (pw !== confirm) return setError('Passwords do not match.');
+    if (existing && pw && !currentPw) return setError("Enter the officer's current password to change it.");
+    setBusy(true);
+    setError(null);
+    try {
+      if (existing) {
+        const patch: Partial<PtaUserInput> = {
+          username: form.username.trim(),
+          full_name: form.full_name.trim(),
+          role: form.role,
+        };
+        if (removePhoto) patch.photo = null;
+        let updated = await api.updatePtaUser(existing.id, patch);
+        // Changing the password verifies the officer's CURRENT password first.
+        if (pw) updated = await api.changeUserPassword(existing.id, currentPw, pw);
+        if (photoPick) updated = await api.setUserPhoto(existing.id, photoPick);
+        if (updated.id === currentUserId) onUserChanged(updated);
+      } else {
+        let created = await api.createPtaUser({
+          username: form.username.trim(),
+          full_name: form.full_name.trim(),
+          role: form.role,
+          password: pw,
+        });
+        if (photoPick) created = await api.setUserPhoto(created.id, photoPick);
+        if (created.id === currentUserId) onUserChanged(created);
+      }
+      onSaved();
+    } catch (err) {
+      const msg = errMsg(err);
+      setError(msg);
+      notify(msg, 'error');
+      setBusy(false);
+    }
+  };
+
+  const photoSrc = removePhoto ? null : photoPick?.dataUrl ?? existing?.photo ?? null;
+  const photoNote = photoPick ? `New photo: ${photoPick.name}` : removePhoto ? 'Photo will be removed on save' : null;
+
   return (
-    <Modal title="Add officer account" onClose={onClose}>
+    <Modal title={existing ? `Edit officer — ${existing.full_name}` : 'Add officer account'} onClose={onClose}>
       <div className="form">
         <div className="field">
           <label>Full name</label>
@@ -545,18 +708,128 @@ function UserModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
             </select>
           </div>
         </div>
+
         <div className="field">
-          <label>Password</label>
-          <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 4 characters" />
+          <label>Profile photo</label>
+          <div className="photo-row">
+            {photoSrc ? (
+              <img className="photo-preview" src={photoSrc} alt="Profile photo" />
+            ) : (
+              <div className="photo-preview photo-preview-empty">👤</div>
+            )}
+            <div className="photo-row-actions">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setPhotoPick({ name: f.name, path: null, mime: f.type, size: f.size, dataUrl: String(reader.result) });
+                      setRemovePhoto(false);
+                    };
+                    reader.readAsDataURL(f);
+                  }
+                  e.target.value = '';
+                }}
+              />
+              <button className="btn-ghost sm" onClick={() => void pickPhoto()}>📷 Upload photo</button>
+              {(existing?.photo || photoPick) && (
+                <button className="btn-ghost sm" onClick={() => { setRemovePhoto(true); setPhotoPick(null); }}>Remove</button>
+              )}
+            </div>
+          </div>
+          {photoNote && <p className="field-hint">{photoNote}</p>}
+          <p className="field-hint">JPG, PNG, GIF or WebP, up to 2 MB.</p>
+        </div>
+
+        {existing && (
+          <div className="field">
+            <label>Current password</label>
+            <input
+              type="password"
+              value={currentPw}
+              onChange={(e) => { setCurrentPw(e.target.value); setError(null); }}
+              placeholder="Officer's current password"
+              autoComplete="current-password"
+            />
+            <p className="field-hint">Required to set a new password for this officer.</p>
+          </div>
+        )}
+        <div className="field">
+          <label>{existing ? 'New password (optional)' : 'Password'}</label>
+          <input type="password" value={form.password} onChange={(e) => { setForm({ ...form, password: e.target.value }); setError(null); }} placeholder={existing ? 'Leave blank to keep current' : 'Min 4 characters'} autoComplete="new-password" />
         </div>
         <div className="field">
           <label>Confirm password</label>
-          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Re-enter password" />
+          <input type="password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setError(null); }} placeholder="Re-enter password" autoComplete="new-password" />
         </div>
         {error && <p className="field-hint sms-error">{error}</p>}
         <div className="form-actions">
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={() => void save()}>Add officer</button>
+          <button className="btn-primary" onClick={() => void save()} disabled={busy}>
+            {busy ? 'Saving…' : existing ? 'Save changes' : 'Add officer'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ChangePasswordModal({
+  notify,
+  onClose,
+  onChanged,
+}: {
+  notify: (msg: string, tone?: 'success' | 'error') => void;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [oldPw, setOldPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    if (!oldPw) return setError('Enter your current password.');
+    if (String(newPw).length < 4) return setError('New password must be at least 4 characters.');
+    if (newPw !== confirm) return setError('Passwords do not match.');
+    setBusy(true);
+    setError(null);
+    try {
+      await api.changePassword(oldPw, newPw);
+      onChanged();
+    } catch (err) {
+      const msg = errMsg(err);
+      setError(msg);
+      notify(msg, 'error');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Change password" onClose={onClose}>
+      <div className="form">
+        <div className="field">
+          <label>Current password</label>
+          <input type="password" value={oldPw} onChange={(e) => { setOldPw(e.target.value); setError(null); }} autoFocus autoComplete="current-password" />
+        </div>
+        <div className="field">
+          <label>New password</label>
+          <input type="password" value={newPw} onChange={(e) => { setNewPw(e.target.value); setError(null); }} placeholder="Min 4 characters" autoComplete="new-password" />
+        </div>
+        <div className="field">
+          <label>Confirm new password</label>
+          <input type="password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setError(null); }} placeholder="Re-enter new password" autoComplete="new-password" />
+        </div>
+        {error && <p className="field-hint sms-error">{error}</p>}
+        <div className="form-actions">
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : 'Change password'}</button>
         </div>
       </div>
     </Modal>

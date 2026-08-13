@@ -1,9 +1,11 @@
 // Disbursements with the DRAFT → APPROVED (President) → PAID (Treasurer)
 // workflow and auto-numbered Disbursement Vouchers (DV). Each DV can carry
 // multiple supporting attachments (invoices, quotations, ORs, …).
+import type { PoolConnection } from 'mysql2/promise';
 import { db } from '../db/connection';
 import { get } from '../db/settings';
 import { schoolYearStart } from './collections';
+import { withRetry } from './db-retry';
 import { listAttachments, removeAttachment, saveAttachment } from './attachments';
 import type {
   Attachment,
@@ -56,12 +58,16 @@ const toDisb = (r: DisbRow): Disbursement => ({
   created_at: r.created_at,
 });
 
-async function nextDvNo(prefix: string, yearLabel: string): Promise<string> {
+/** Counts existing vouchers for the prefix+year on the caller's connection.
+ *  Callers MUST hold the `pta:dv-no:<prefix><year>` GET_LOCK (acquired before
+ *  the transaction, released after commit) so two machines can't mint the
+ *  same voucher number. */
+async function nextDvNo(conn: PoolConnection, prefix: string, yearLabel: string): Promise<string> {
   const year = schoolYearStart(yearLabel);
-  const rows = await db.query<{ c: number }[]>(
+  const rows = (await conn.query(
     'SELECT COUNT(*) AS c FROM pta_disbursements WHERE dv_no LIKE ?',
     [`${prefix}${year}-%`],
-  );
+  ))[0] as unknown as { c: number }[];
   const n = Number(rows[0]?.c ?? 0) + 1;
   return `${prefix}${year}-${String(n).padStart(4, '0')}`;
 }
@@ -112,19 +118,46 @@ export async function createDisbursement(input: DisbursementInput, actorName: st
   const fund = await db.query<{ id: number }[]>('SELECT id FROM pta_funds WHERE id = ?', [input.fund_id]);
   if (!fund[0]) throw new Error('Fund not found.');
 
-  const dvNo = await nextDvNo(get().dv_prefix, get().school_year);
-  const date = input.date ? String(input.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
-  const res = await db.execute(
-    `INSERT INTO pta_disbursements (dv_no, fund_id, payee, received_by, purpose, amount, d_date, status, created_by, notes)
-     VALUES (?, ?, ?, '', ?, ?, ?, 'DRAFT', ?, ?)`,
-    [dvNo, input.fund_id, payee, purpose, amount, date, actorName, String(input.notes ?? '').trim()],
+  // DV number minted under GET_LOCK (held until commit) so two machines can't
+  // issue the same voucher number; the UNIQUE key on dv_no is the backstop.
+  // Number allocation + insert commit together on one connection.
+  const settings = get();
+  const year = settings.school_year;
+  const lockName = `pta:dv-no:${settings.dv_prefix}${schoolYearStart(year)}`;
+  const insertedId = await withRetry(() =>
+    db.withConnection(async (conn) => {
+      const got = (await conn.query('SELECT GET_LOCK(?, 10) AS got', [lockName]))[0] as unknown as {
+        got: number;
+      }[];
+      if (got[0]?.got !== 1) {
+        throw new Error('Voucher numbering is busy on another machine — please try again.');
+      }
+      try {
+        await conn.beginTransaction();
+        const dvNo = await nextDvNo(conn, settings.dv_prefix, year);
+        const date = input.date ? String(input.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+        const res = (await conn.execute(
+          `INSERT INTO pta_disbursements (dv_no, fund_id, payee, received_by, purpose, amount, d_date, status, created_by, notes)
+           VALUES (?, ?, ?, '', ?, ?, ?, 'DRAFT', ?, ?)`,
+          [dvNo, input.fund_id, payee, purpose, amount, date, actorName, String(input.notes ?? '').trim()],
+        ))[0] as unknown as { insertId: number };
+        await conn.commit();
+        return res.insertId;
+      } catch (err) {
+        await conn.rollback().catch(() => undefined);
+        throw err;
+      } finally {
+        await conn.query('SELECT RELEASE_LOCK(?) AS rel', [lockName]).catch(() => undefined);
+      }
+    }),
   );
+  if (!insertedId) throw new Error('Database is offline.');
   const [row] = await db.query<DisbRow[]>(
     `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
             d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
             d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
      FROM pta_disbursements d JOIN pta_funds f ON f.id = d.fund_id WHERE d.id = ?`,
-    [res.insertId],
+    [insertedId],
   );
   return toDisb(row);
 }

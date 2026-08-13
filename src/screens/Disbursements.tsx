@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PTA_ROLE_LABELS } from '../../shared/types';
 import type { Attachment, Disbursement, DisbursementStatus, Fund, PtaFilePick, PtaUser } from '../../shared/types';
-import { api, isElectron } from '../lib/api';
+import { api, errMsg, isElectron } from '../lib/api';
 import { DisbStatusPill, Modal, PrintHeader, Spinner, Toast, fmtDate, fmtMoney, printModal, todayIso } from '../components/shared';
 
 export function DisbursementsScreen({ user }: { user: PtaUser }) {
@@ -43,7 +43,7 @@ export function DisbursementsScreen({ user }: { user: PtaUser }) {
       notify(`${d.dv_no} approved`);
       load();
     } catch (err) {
-      window.alert((err as Error).message);
+      window.alert(errMsg(err));
     }
   };
 
@@ -62,7 +62,7 @@ export function DisbursementsScreen({ user }: { user: PtaUser }) {
       setError(null);
       load();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     }
   };
 
@@ -233,7 +233,7 @@ function CreateDisbursementModal({
       await api.createDisbursement({ fund_id: fundId, payee: payee.trim(), purpose: purpose.trim(), amount: amt, date: date || undefined, notes: notes || undefined });
       onSaved();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
       setBusy(false);
     }
   };
@@ -319,7 +319,7 @@ function AttachmentsModal({ disbursement, onClose, notify }: { disbursement: Dis
       notify('Attachment added');
       load();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     } finally {
       setBusy(false);
     }

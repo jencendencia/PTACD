@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AdvanceStatus, DisbursementStatus, SchoolInfo } from '../../shared/types';
+import type { AdvanceStatus, DisbursementStatus, PtaUser, SchoolInfo } from '../../shared/types';
 import { api } from '../lib/api';
 
 /** Today's date as YYYY-MM-DD in the LOCAL timezone (toISOString is UTC and
@@ -39,6 +39,16 @@ export function Spinner({ label }: { label?: string }) {
 
 export function Toast({ message, tone = 'success' }: { message: string; tone?: 'success' | 'error' }) {
   return <div className={`toast ${tone === 'success' ? 'toast-success' : 'toast-error'}`}>{message}</div>;
+}
+
+/** Round avatar: the profile photo when set, otherwise the user's initial. */
+export function UserAvatar({ user, size = 36 }: { user: PtaUser; size?: number }) {
+  const initial = user.full_name.trim().slice(0, 1).toUpperCase() || user.username.slice(0, 1).toUpperCase();
+  return (
+    <div className="pta-user-avatar" style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}>
+      {user.photo ? <img src={user.photo} alt="" /> : initial}
+    </div>
+  );
 }
 
 /** Letterhead for printed statements/receipts: school logo image + text.

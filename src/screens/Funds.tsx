@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DistributionRule, FeeComponent, Fund } from '../../shared/types';
-import { api } from '../lib/api';
+import { api, errMsg } from '../lib/api';
 import { Modal, Spinner, Toast, fmtMoney } from '../components/shared';
 
 export function FundsScreen() {
@@ -33,7 +33,7 @@ export function FundsScreen() {
       await api.saveDistributionRule({ component_id: componentId, fund_id: fundId, percentage });
       load();
     } catch (err) {
-      window.alert((err as Error).message);
+      window.alert(errMsg(err));
     }
   };
 
@@ -46,7 +46,7 @@ export function FundsScreen() {
       notify('Fund deleted');
       load();
     } catch (err) {
-      setDeleteError((err as Error).message);
+      setDeleteError(errMsg(err));
     } finally {
       setDeleting(false);
     }
@@ -179,7 +179,7 @@ function AddFundModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       await api.saveFund({ name: name.trim(), description });
       onSaved();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     }
   };
 

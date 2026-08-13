@@ -1,10 +1,11 @@
 // Collections: record a family payment with an auto-numbered Official Receipt,
 // apply it FIFO across the family's unpaid charges, and auto-distribute the
 // settled amounts into funds using each component's distribution rules.
+import type { PoolConnection } from 'mysql2/promise';
 import { db } from '../db/connection';
 import { get } from '../db/settings';
 import { rulesByComponent } from './funds';
-import { unpaidChargesForFamily } from './charges';
+import { withRetry } from './db-retry';
 import type {
   Charge,
   ChargePayment,
@@ -22,12 +23,16 @@ export function schoolYearStart(yearLabel: string): string {
   return m ? m[0] : String(new Date().getFullYear());
 }
 
-async function nextOrNo(prefix: string, yearLabel: string): Promise<string> {
+/** Counts existing receipts for the prefix+year on the caller's connection.
+ *  Callers MUST hold the `pta:or-no:<prefix><year>` GET_LOCK (acquired before
+ *  the transaction, released after commit) so the count never runs against a
+ *  half-visible set — two machines can't mint the same receipt number. */
+async function nextOrNo(conn: PoolConnection, prefix: string, yearLabel: string): Promise<string> {
   const year = schoolYearStart(yearLabel);
-  const rows = await db.query<{ c: number }[]>(
+  const rows = (await conn.query(
     'SELECT COUNT(*) AS c FROM pta_collections WHERE or_no LIKE ?',
     [`${prefix}${year}-%`],
-  );
+  ))[0] as unknown as { c: number }[];
   const n = Number(rows[0]?.c ?? 0) + 1;
   return `${prefix}${year}-${String(n).padStart(4, '0')}`;
 }
@@ -148,75 +153,125 @@ export async function createCollection(input: CollectionInput, actorName: string
   const [family] = await db.query<{ id: number }[]>('SELECT id FROM pta_families WHERE id = ?', [familyId]);
   if (!family) throw new Error('Family not found.');
 
-  const charges = await unpaidChargesForFamily(familyId, year);
-  const totalUnpaid = charges.reduce((s, c) => s + (c.amount - c.paid_amount), 0);
-  if (totalUnpaid <= 0) throw new Error('This family has no outstanding charges for the school year.');
-  if (amount > totalUnpaid + 0.001) {
-    throw new Error(`Payment exceeds the family's balance (${totalUnpaid.toFixed(2)}).`);
-  }
-
-  // When a specific child is targeted, settle that child's charges first
-  // (FIFO), then spill the remainder over to the rest of the family.
-  const orderedCharges = studentId
-    ? [...charges.filter((c) => c.student_id === studentId), ...charges.filter((c) => c.student_id !== studentId)]
-    : charges;
-
-  if (studentId && !charges.some((c) => c.student_id === studentId)) {
-    throw new Error('Selected child has no outstanding charges for the school year.');
-  }
-
-  // 1) Apply the payment across charges (FIFO).
-  let remaining = amount;
-  const payments: { charge: Charge; amount: number }[] = [];
-  for (const c of orderedCharges) {
-    if (remaining <= 0.0001) break;
-    const due = c.amount - c.paid_amount;
-    const take = Math.min(due, remaining);
-    payments.push({ charge: c, amount: round2(take) });
-    remaining = round2(remaining - take);
-  }
-
-  // 2) Insert the collection + OR number.
-  const orNo = await nextOrNo(settings.or_prefix, year);
-  const collectedAt = input.collected_at ? `${String(input.collected_at).slice(0, 10)} 12:00:00` : new Date().toISOString().slice(0, 19).replace('T', ' ');
-  const res = await db.execute(
-    `INSERT INTO pta_collections (or_no, family_id, school_year, amount, collected_at, collector, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [orNo, familyId, year, amount, collectedAt, actorName, String(input.notes ?? '').trim()],
-  );
-  const collectionId = res.insertId;
-
-  // 3) Record charge payments + bump paid_amount.
+  // Distribution rules are read-only — fetch once before the write transaction.
   const rules = await rulesByComponent();
-  for (const p of payments) {
-    await db.execute(
-      'INSERT INTO pta_charge_payments (collection_id, charge_id, amount) VALUES (?, ?, ?)',
-      [collectionId, p.charge.id, p.amount],
-    );
-    const newPaid = round2(p.charge.paid_amount + p.amount);
-    await db.execute('UPDATE pta_charges SET paid_amount = ? WHERE id = ?', [newPaid, p.charge.id]);
-  }
 
-  // 4) Distribute into funds per component rules.
-  for (const p of payments) {
-    const compRules = rules.get(p.charge.component_id) ?? [];
-    if (!compRules.length) continue;
-    let allocated = 0;
-    compRules.forEach((rule, i) => {
-      const isLast = i === compRules.length - 1;
-      const share = isLast
-        ? round2(p.amount - allocated)
-        : round2((p.amount * rule.percentage) / 100);
-      if (share > 0) {
-        void db.execute(
-          'INSERT INTO pta_fund_allocations (collection_id, fund_id, amount) VALUES (?, ?, ?)',
-          [collectionId, rule.fund_id, share],
-        );
+  // The collection, its charge payments, and the fund allocations commit in
+  // ONE transaction on one connection: a failure mid-way can't leave a receipt
+  // with missing payments (or payments without allocations). The family's
+  // unpaid charges are locked (FOR UPDATE) so two cashiers paying the same
+  // family serialize — the balance check and paid_amount increments see each
+  // other's committed data. Deadlocks (1213/1205 — normal when two machines
+  // write related rows) are retried; the transaction guarantees a retried
+  // attempt starts clean, so nothing is double-recorded. The OR number is
+  // minted under GET_LOCK held until commit (two machines can never produce
+  // the same receipt number); the UNIQUE key on or_no is the backstop.
+  const lockName = `pta:or-no:${settings.or_prefix}${schoolYearStart(year)}`;
+  const collectionId = await withRetry(() =>
+    db.withConnection(async (conn) => {
+      const got = (await conn.query('SELECT GET_LOCK(?, 10) AS got', [lockName]))[0] as unknown as {
+        got: number;
+      }[];
+      if (got[0]?.got !== 1) {
+        throw new Error('Receipt numbering is busy on another machine — please try again.');
       }
-      allocated = round2(allocated + share);
-    });
-  }
+      try {
+        await conn.beginTransaction();
 
+        // Lock this family's unpaid charges (FIFO order). A concurrent cashier
+        // blocks here until this transaction commits, so the validation below
+        // and the relative paid_amount increments always see committed data.
+        const unpaid = (await conn.query(
+          `SELECT id, student_id, component_id, term, amount, paid_amount
+           FROM pta_charges WHERE family_id = ? AND school_year = ? AND paid_amount < amount
+           ORDER BY created_at, id FOR UPDATE`,
+          [familyId, year],
+        ))[0] as unknown as Charge[];
+        const totalUnpaid = unpaid.reduce((s, c) => s + (Number(c.amount) - Number(c.paid_amount)), 0);
+        if (totalUnpaid <= 0) throw new Error('This family has no outstanding charges for the school year.');
+        if (amount > totalUnpaid + 0.001) {
+          throw new Error(`Payment exceeds the family's balance (${totalUnpaid.toFixed(2)}).`);
+        }
+        // When a specific child is targeted, settle that child's charges first
+        // (FIFO), then spill the remainder over to the rest of the family.
+        const orderedCharges = studentId
+          ? [
+              ...unpaid.filter((c) => c.student_id === studentId),
+              ...unpaid.filter((c) => c.student_id !== studentId),
+            ]
+          : unpaid;
+        if (studentId && !unpaid.some((c) => c.student_id === studentId)) {
+          throw new Error('Selected child has no outstanding charges for the school year.');
+        }
+
+        // Apply the payment across charges (FIFO).
+        let remaining = amount;
+        const payments: { charge: Charge; amount: number }[] = [];
+        for (const c of orderedCharges) {
+          if (remaining <= 0.0001) break;
+          const due = Number(c.amount) - Number(c.paid_amount);
+          const take = Math.min(due, remaining);
+          payments.push({ charge: c, amount: round2(take) });
+          remaining = round2(remaining - take);
+        }
+
+        // Insert the collection + OR number (allocated under the lock above).
+        const orNo = await nextOrNo(conn, settings.or_prefix, year);
+        const collectedAt = input.collected_at
+          ? `${String(input.collected_at).slice(0, 10)} 12:00:00`
+          : new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const res = (await conn.execute(
+          `INSERT INTO pta_collections (or_no, family_id, school_year, amount, collected_at, collector, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [orNo, familyId, year, amount, collectedAt, actorName, String(input.notes ?? '').trim()],
+        ))[0] as unknown as { insertId: number };
+        const collectionId = res.insertId;
+
+        // Record charge payments + bump paid_amount. Relative increment: never
+        // overwrite with a stale absolute value (a concurrent payment would be
+        // lost otherwise). The FOR UPDATE lock serializes concurrent payers.
+        for (const p of payments) {
+          await conn.execute(
+            'INSERT INTO pta_charge_payments (collection_id, charge_id, amount) VALUES (?, ?, ?)',
+            [collectionId, p.charge.id, p.amount],
+          );
+          await conn.execute('UPDATE pta_charges SET paid_amount = paid_amount + ? WHERE id = ?', [
+            p.amount,
+            p.charge.id,
+          ]);
+        }
+
+        // Distribute into funds per component rules (awaited, inside the txn —
+        // previously fire-and-forget, which could silently lose allocations).
+        for (const p of payments) {
+          const compRules = rules.get(p.charge.component_id) ?? [];
+          if (!compRules.length) continue;
+          let allocated = 0;
+          for (let i = 0; i < compRules.length; i++) {
+            const rule = compRules[i];
+            const isLast = i === compRules.length - 1;
+            const share = isLast ? round2(p.amount - allocated) : round2((p.amount * rule.percentage) / 100);
+            if (share > 0) {
+              await conn.execute(
+                'INSERT INTO pta_fund_allocations (collection_id, fund_id, amount) VALUES (?, ?, ?)',
+                [collectionId, rule.fund_id, share],
+              );
+            }
+            allocated = round2(allocated + share);
+          }
+        }
+
+        await conn.commit();
+        return collectionId;
+      } catch (err) {
+        await conn.rollback().catch(() => undefined);
+        throw err;
+      } finally {
+        await conn.query('SELECT RELEASE_LOCK(?) AS rel', [lockName]).catch(() => undefined);
+      }
+    }),
+  );
+  if (!collectionId) throw new Error('Database is offline.');
   return collectionDetail(collectionId);
 }
 

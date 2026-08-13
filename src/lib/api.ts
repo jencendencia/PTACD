@@ -50,6 +50,16 @@ import type {
 
 export const isElectron = typeof window !== 'undefined' && !!(window as unknown as { ptaApi?: PtaApi }).ptaApi;
 
+/** Human-readable error message. Strips Electron's raw IPC rejection wrapper
+ *  ("Error invoking remote method 'pta:…': Error: …") so the UI shows the
+ *  actual reason instead of the plumbing. */
+export function errMsg(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? '');
+  const match = raw.match(/Error invoking remote method '[^']*': (?:Error: )?(.*)$/s);
+  const cleaned = (match ? match[1] : raw).replace(/^Error:\s*/, '');
+  return cleaned.trim() || 'Something went wrong.';
+}
+
 const nowIso = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const pad = (n: number) => String(n).padStart(4, '0');
@@ -78,7 +88,7 @@ const DEMO_STUDENTS: MockStudent[] = [
 ];
 
 class MockApi implements PtaApi {
-  private users: { id: number; username: string; password: string; full_name: string; role: PtaRole; created_at: string }[];
+  private users: { id: number; username: string; password: string; full_name: string; role: PtaRole; photo: string | null; created_at: string }[];
   private userSeq = 1;
   private currentUser: PtaUser | null = null;
 
@@ -101,10 +111,10 @@ class MockApi implements PtaApi {
 
   constructor() {
     this.users = [
-      { id: this.userSeq++, username: 'admin', password: 'admin', full_name: 'PTA Administrator', role: 'admin', created_at: nowIso() },
-      { id: this.userSeq++, username: 'president', password: 'president', full_name: 'Mrs. Alma Santos', role: 'president', created_at: nowIso() },
-      { id: this.userSeq++, username: 'treasurer', password: 'treasurer', full_name: 'Mr. Ben Cruz', role: 'treasurer', created_at: nowIso() },
-      { id: this.userSeq++, username: 'secretary', password: 'secretary', full_name: 'Ms. Carol Lim', role: 'secretary', created_at: nowIso() },
+      { id: this.userSeq++, username: 'admin', password: 'admin', full_name: 'PTA Administrator', role: 'admin', photo: null, created_at: nowIso() },
+      { id: this.userSeq++, username: 'president', password: 'president', full_name: 'Mrs. Alma Santos', role: 'president', photo: null, created_at: nowIso() },
+      { id: this.userSeq++, username: 'treasurer', password: 'treasurer', full_name: 'Mr. Ben Cruz', role: 'treasurer', photo: null, created_at: nowIso() },
+      { id: this.userSeq++, username: 'secretary', password: 'secretary', full_name: 'Ms. Carol Lim', role: 'secretary', photo: null, created_at: nowIso() },
     ];
     this.components = [
       { id: 1, code: 'MEMBERSHIP', label: 'Membership Fee', amount: 200, applies: 'per_family', term: '', is_active: true, sort_order: 1 },
@@ -131,8 +141,8 @@ class MockApi implements PtaApi {
     return name ? `${name}|${String(guardianAddress ?? '').trim()}` : `SELF|${String(studentNo ?? '').trim()}`;
   }
 
-  private toPtaUser(u: { id: number; username: string; full_name: string; role: PtaRole; created_at: string }): PtaUser {
-    return { id: u.id, username: u.username, full_name: u.full_name, role: u.role, created_at: u.created_at };
+  private toPtaUser(u: { id: number; username: string; full_name: string; role: PtaRole; photo: string | null; created_at: string }): PtaUser {
+    return { id: u.id, username: u.username, full_name: u.full_name, role: u.role, photo: u.photo ?? null, created_at: u.created_at };
   }
 
   private requireUser(): PtaUser {
@@ -199,7 +209,7 @@ class MockApi implements PtaApi {
     if (!username || !input.full_name) throw new Error('Username and full name are required.');
     if (this.users.some((u) => u.username === username)) throw new Error('Username already taken.');
     if (String(input.password ?? '').length < 4) throw new Error('Password must be at least 4 characters.');
-    const u = { id: this.userSeq++, username, password: String(input.password), full_name: input.full_name, role: input.role, created_at: nowIso() };
+    const u = { id: this.userSeq++, username, password: String(input.password), full_name: input.full_name, role: input.role, photo: null, created_at: nowIso() };
     this.users.push(u);
     return this.toPtaUser(u);
   }
@@ -211,6 +221,34 @@ class MockApi implements PtaApi {
     if ('full_name' in patch && patch.full_name !== undefined) u.full_name = patch.full_name;
     if ('role' in patch && patch.role) u.role = patch.role;
     if (patch.password) u.password = patch.password;
+    if ('photo' in patch) u.photo = patch.photo ?? null;
+    return this.toPtaUser(u);
+  }
+  async pickUserPhoto(): Promise<PtaFilePick | null> {
+    return null;
+  }
+  async setUserPhoto(userId: number, file: PtaFilePick): Promise<PtaUser> {
+    this.requireUser();
+    const u = this.users.find((x) => x.id === userId);
+    if (!u) throw new Error('User not found.');
+    if (!file.dataUrl) throw new Error('No photo file to upload.');
+    u.photo = file.dataUrl;
+    return this.toPtaUser(u);
+  }
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    const u = this.requireUser();
+    const rec = this.users.find((x) => x.id === u.id);
+    if (!rec || rec.password !== String(oldPassword ?? '')) throw new Error('Current password is incorrect.');
+    if (String(newPassword ?? '').length < 4) throw new Error('New password must be at least 4 characters.');
+    rec.password = String(newPassword);
+  }
+  async changeUserPassword(userId: number, oldPassword: string, newPassword: string): Promise<PtaUser> {
+    this.requireRoles('admin');
+    const u = this.users.find((x) => x.id === userId);
+    if (!u) throw new Error('User not found.');
+    if (u.password !== String(oldPassword ?? '')) throw new Error('Current password is incorrect.');
+    if (String(newPassword ?? '').length < 4) throw new Error('New password must be at least 4 characters.');
+    u.password = String(newPassword);
     return this.toPtaUser(u);
   }
   async deletePtaUser(id: number): Promise<void> {

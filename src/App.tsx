@@ -4,7 +4,7 @@ import { PTA_ROLE_LABELS } from '../shared/types';
 import type { PtaLicenseStatus, PtaSettings, PtaUser, SchoolInfo } from '../shared/types';
 import { api } from './lib/api';
 import { TitleBar } from './components/TitleBar';
-import { Spinner } from './components/shared';
+import { Spinner, UserAvatar } from './components/shared';
 import { LoginScreen } from './screens/Login';
 import { ActivationScreen } from './screens/Activation';
 import { DashboardScreen } from './screens/Dashboard';
@@ -113,7 +113,7 @@ export default function App() {
               </nav>
               <div className="pta-side-foot">
                 <div className="pta-user">
-                  <div className="pta-user-avatar">{user.full_name.slice(0, 1).toUpperCase() || user.username.slice(0, 1).toUpperCase()}</div>
+                  <UserAvatar user={user} />
                   <div className="pta-user-meta">
                     <strong>{user.full_name}</strong>
                     <span className="text-dim">{PTA_ROLE_LABELS[user.role]}</span>
@@ -130,7 +130,7 @@ export default function App() {
               {tab === 'advances' && <AdvancesScreen user={user} />}
               {tab === 'funds' && <FundsScreen />}
               {tab === 'reports' && <ReportsScreen />}
-              {tab === 'settings' && <SettingsScreen />}
+              {tab === 'settings' && <SettingsScreen user={user} onUserChanged={(u) => setUser(u)} />}
             </main>
           </div>
         )}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Advance, Fund, LiquidationItem, PtaFilePick, PtaUser } from '../../shared/types';
-import { api, isElectron } from '../lib/api';
+import { api, errMsg, isElectron } from '../lib/api';
 import { AdvStatusPill, Modal, Spinner, Toast, fmtDate, fmtMoney, todayIso } from '../components/shared';
 
 export function AdvancesScreen({ user }: { user: PtaUser }) {
@@ -133,7 +133,7 @@ function CreateAdvanceModal({ funds, onClose, onSaved }: { funds: Fund[]; onClos
       await api.createAdvance({ fund_id: fundId, recipient: recipient.trim(), purpose: purpose.trim(), amount: amt, date_issued: date || undefined });
       onSaved();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     }
   };
 
@@ -227,7 +227,7 @@ function LiquidationModal({
       const list = await api.listAdvances();
       onChanged({ ...list.find((a) => a.id === advance.id)!, items: next });
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     }
   };
 
@@ -247,7 +247,7 @@ function LiquidationModal({
       onChanged({ ...list.find((a) => a.id === advance.id)!, items });
       onClose();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     }
   };
 

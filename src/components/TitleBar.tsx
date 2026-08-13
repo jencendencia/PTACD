@@ -3,7 +3,7 @@
 // call the win:* IPC bridge exposed by the preload; in browser mock mode
 // (no Electron) the window controls are hidden and only the brand is shown.
 import { useEffect, useState } from 'react';
-import { api, isElectron } from '../lib/api';
+import { api, errMsg, isElectron } from '../lib/api';
 import type { PtaDbConfig, PtaDbStatus, PtaSettings, PtaWindowControls, SchoolInfo } from '../../shared/types';
 import { Modal } from './shared';
 
@@ -121,7 +121,7 @@ export function TitleBar({
         setDbError(status.detail);
       }
     } catch (err) {
-      setDbError((err as Error).message);
+      setDbError(errMsg(err));
     } finally {
       setConnecting(false);
     }

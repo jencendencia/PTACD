@@ -1,8 +1,10 @@
 // PTA officer accounts. Separate from TapIn School's users table so the two
 // apps never conflict. Default admin (admin / admin) is seeded on first boot.
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto';
+import { promises as fs } from 'fs';
+import * as path from 'path';
 import { db } from '../db/connection';
-import type { PtaLoginResult, PtaRole, PtaUser, PtaUserInput } from '../../shared/types';
+import type { PtaFilePick, PtaLoginResult, PtaRole, PtaUser, PtaUserInput } from '../../shared/types';
 
 const ITERATIONS = 120000;
 const KEY_LEN = 32;
@@ -33,6 +35,7 @@ type UserRow = {
   password_hash: string | null;
   full_name: string;
   role: PtaRole;
+  photo: string | null;
   created_at: string;
 };
 
@@ -41,6 +44,7 @@ const toUser = (r: UserRow): PtaUser => ({
   username: r.username,
   full_name: r.full_name,
   role: r.role,
+  photo: r.photo ?? null,
   created_at: r.created_at,
 });
 
@@ -108,6 +112,11 @@ export async function updateUser(id: number, patch: Partial<PtaUserInput>): Prom
     sets.push('password_hash = ?');
     params.push(hashPassword(String(patch.password)));
   }
+  // Photo is managed by setUserPhoto (file → data URL); here we only allow
+  // removing it (photo: null).
+  if ('photo' in patch && patch.photo === null) {
+    sets.push('photo = NULL');
+  }
   if (sets.length) {
     params.push(id);
     await db.execute(`UPDATE pta_users SET ${sets.join(', ')} WHERE id = ?`, params);
@@ -124,4 +133,71 @@ export async function deleteUser(id: number): Promise<void> {
     if (admins.length <= 1) throw new Error('Cannot delete the last admin account.');
   }
   await db.execute('DELETE FROM pta_users WHERE id = ?', [id]);
+}
+
+/** Max profile-photo size (2 MB) — keeps the MEDIUMTEXT column and IPC small. */
+export const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+
+const photoMime = (name: string): string => {
+  const ext = path.extname(name).toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
+  return 'image/jpeg';
+};
+
+/** Reads a picked photo file and returns it as a PtaFilePick carrying the
+ *  contents as a data URL, so the renderer can preview it before saving.
+ *  Enforces the size limit here (at pick time) rather than only at save. */
+export async function readUserPhotoFile(filePath: string): Promise<PtaFilePick> {
+  const stat = await fs.stat(filePath);
+  if (stat.size > MAX_PHOTO_BYTES) throw new Error('Photo must be 2 MB or smaller.');
+  const mime = photoMime(path.basename(filePath));
+  const buf = await fs.readFile(filePath);
+  return {
+    name: path.basename(filePath),
+    path: filePath,
+    mime,
+    size: stat.size,
+    dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+  };
+}
+
+/** Stores a picked photo as a data URL on the user's row (shared DB ⇒ every
+ *  machine sees the same photo). Prefers an already-encoded data URL (the
+ *  picker and browser mock both provide one); falls back to reading the path. */
+export async function setUserPhoto(userId: number, file: PtaFilePick): Promise<PtaUser> {
+  let dataUrl = file.dataUrl;
+  if (!dataUrl) {
+    if (!file.path) throw new Error('No photo file to upload.');
+    const stat = await fs.stat(file.path);
+    if (stat.size > MAX_PHOTO_BYTES) throw new Error('Photo must be 2 MB or smaller.');
+    const buf = await fs.readFile(file.path);
+    dataUrl = `data:${photoMime(file.name)};base64,${buf.toString('base64')}`;
+  }
+  await db.execute('UPDATE pta_users SET photo = ? WHERE id = ?', [dataUrl, userId]);
+  const [row] = await db.query<UserRow[]>('SELECT * FROM pta_users WHERE id = ?', [userId]);
+  if (!row) throw new Error('User not found.');
+  return toUser(row);
+}
+
+/** Self-service password change — the caller's current password must match. */
+export async function changePassword(userId: number, oldPassword: string, newPassword: string): Promise<void> {
+  const [row] = await db.query<UserRow[]>('SELECT * FROM pta_users WHERE id = ?', [userId]);
+  if (!row) throw new Error('User not found.');
+  if (!verifyPassword(String(oldPassword ?? ''), row.password_hash)) {
+    throw new Error('Current password is incorrect.');
+  }
+  const next = String(newPassword ?? '');
+  if (next.length < 4) throw new Error('New password must be at least 4 characters.');
+  await db.execute('UPDATE pta_users SET password_hash = ? WHERE id = ?', [hashPassword(next), userId]);
+}
+
+/** Admin changes an officer's password — the officer's CURRENT password must
+ *  be verified first (same rule as self-service). Returns the updated user. */
+export async function changeUserPassword(userId: number, oldPassword: string, newPassword: string): Promise<PtaUser> {
+  await changePassword(userId, oldPassword, newPassword);
+  const [row] = await db.query<UserRow[]>('SELECT * FROM pta_users WHERE id = ?', [userId]);
+  if (!row) throw new Error('User not found.');
+  return toUser(row);
 }

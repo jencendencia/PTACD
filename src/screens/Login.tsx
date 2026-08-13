@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PtaUser, SchoolInfo } from '../../shared/types';
-import { api } from '../lib/api';
+import { api, errMsg } from '../lib/api';
 
 export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
   const [school, setSchool] = useState<SchoolInfo | null>(null);
@@ -25,7 +25,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
         setError(res.error ?? 'Login failed.');
       }
     } catch (err) {
-      setError(`Could not reach the app: ${(err as Error).message}`);
+      setError(`Could not reach the app: ${errMsg(err)}`);
     } finally {
       setBusy(false);
     }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Collection, CollectionDetail, Family, FamilyChild } from '../../shared/types';
-import { api } from '../lib/api';
+import { api, errMsg } from '../lib/api';
 import { Modal, PrintHeader, Spinner, Toast, fmtDateTime, fmtMoney, printModal, todayIso } from '../components/shared';
 
 export function CollectionsScreen() {
@@ -57,7 +57,7 @@ export function CollectionsScreen() {
       const d = await api.collectionDetail(r.id);
       if (detailRequest.current === r.id) setDetail(d);
     } catch (err) {
-      if (detailRequest.current === r.id) notify((err as Error).message, 'error');
+      if (detailRequest.current === r.id) notify(errMsg(err), 'error');
     } finally {
       if (detailRequest.current === r.id) setDetailLoading(false);
     }
@@ -98,7 +98,7 @@ export function CollectionsScreen() {
       setOffset(0);
       load(0);
     } catch (err) {
-      setError((err as Error).message);
+      setError(errMsg(err));
     } finally {
       setSaving(false);
     }
@@ -113,7 +113,7 @@ export function CollectionsScreen() {
       notify('Collection voided');
       load(offset);
     } catch (err) {
-      setVoidError((err as Error).message);
+      setVoidError(errMsg(err));
     } finally {
       setVoiding(false);
     }
