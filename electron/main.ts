@@ -1,8 +1,23 @@
 // PTA CD main process: window, DB boot, IPC registration.
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, protocol } from 'electron';
 import * as path from 'path';
+import { promises as fs } from 'fs';
 import { db } from './db/connection';
 import { bootPta, configureDbFromDisk, registerIpc } from './ipc';
+
+// Serve the school logo over tapin-logo:// (same scheme TapIn School uses) so
+// <img src="tapin-logo://logo/school-logo.jpg"> works in the renderer.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'tapin-logo', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
+
+const LOGO_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -36,6 +51,34 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  // Serve persisted school logos from disk (tapin-logo://logo/<file>). The logo
+  // is saved by TapIn School under its userData folder; fall back to our own.
+  protocol.handle('tapin-logo', async (request) => {
+    try {
+      const url = new URL(request.url);
+      const key = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+      const dirs = [
+        path.join(app.getPath('appData'), 'TapIn School', 'logos'),
+        path.join(app.getPath('userData'), 'logos'),
+      ];
+      for (const dir of dirs) {
+        const filePath = path.resolve(dir, key);
+        // Guard against path traversal from a tampered stored URL.
+        if (!filePath.startsWith(path.resolve(dir) + path.sep)) return new Response('Forbidden', { status: 403 });
+        try {
+          const data = await fs.readFile(filePath);
+          const mime = LOGO_MIME[path.extname(filePath).slice(1).toLowerCase()] ?? 'application/octet-stream';
+          return new Response(new Uint8Array(data), { headers: { 'Content-Type': mime } });
+        } catch {
+          // not in this dir — try the next candidate
+        }
+      }
+      return new Response('Not found', { status: 404 });
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+
   registerIpc();
   createWindow();
   configureDbFromDisk();

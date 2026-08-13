@@ -32,6 +32,7 @@ type FamilyRow = {
   student_count: number;
   is_active: number;
   created_at: string;
+  balance: number;
 };
 
 const toFamily = (r: FamilyRow): Family => ({
@@ -42,6 +43,7 @@ const toFamily = (r: FamilyRow): Family => ({
   student_count: r.student_count,
   is_active: !!r.is_active,
   created_at: r.created_at,
+  balance: Number(r.balance ?? 0),
 });
 
 /** Rebuilds pta_families from the students table. Idempotent; returns count. */
@@ -116,7 +118,8 @@ export async function syncFamilies(): Promise<number> {
 }
 
 export async function listFamilies(search?: string): Promise<Family[]> {
-  const params: unknown[] = [];
+  const year = get().school_year;
+  const params: unknown[] = [year];
   let where = '';
   if (search && String(search).trim()) {
     const like = `%${String(search).trim()}%`;
@@ -128,7 +131,10 @@ export async function listFamilies(search?: string): Promise<Family[]> {
     params.push(like, like, like, like);
   }
   const rows = await db.query<FamilyRow[]>(
-    `SELECT * FROM pta_families f ${where} ORDER BY f.guardian_name`,
+    `SELECT f.*,
+       COALESCE((SELECT SUM(c.amount - c.paid_amount) FROM pta_charges c
+                 WHERE c.family_id = f.id AND c.school_year = ?), 0) AS balance
+     FROM pta_families f ${where} ORDER BY f.guardian_name`,
     params,
   );
   return rows.map(toFamily);

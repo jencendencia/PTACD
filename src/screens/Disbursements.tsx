@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PTA_ROLE_LABELS } from '../../shared/types';
 import type { Attachment, Disbursement, DisbursementStatus, Fund, PtaFilePick, PtaUser } from '../../shared/types';
 import { api, isElectron } from '../lib/api';
-import { DisbStatusPill, Modal, Spinner, Toast, fmtDate, fmtMoney, todayIso } from '../components/shared';
+import { DisbStatusPill, Modal, PrintHeader, Spinner, Toast, fmtDate, fmtMoney, printModal, todayIso } from '../components/shared';
 
 export function DisbursementsScreen({ user }: { user: PtaUser }) {
   const [rows, setRows] = useState<Disbursement[] | null>(null);
@@ -14,10 +14,13 @@ export function DisbursementsScreen({ user }: { user: PtaUser }) {
   const [toast, setToast] = useState<string | null>(null);
   const [payTarget, setPayTarget] = useState<Disbursement | null>(null);
   const [payRef, setPayRef] = useState('');
+  const [payReceivedBy, setPayReceivedBy] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [attTarget, setAttTarget] = useState<Disbursement | null>(null);
+  const [voucher, setVoucher] = useState<Disbursement | null>(null);
 
-  const isApprover = user.role === 'admin' || user.role === 'president' || user.role === 'vice_president';
+  // Approval is reserved to the President; drafts are prepared by the Treasurer.
+  const isApprover = user.role === 'admin' || user.role === 'president';
   const isTreasurer = user.role === 'admin' || user.role === 'treasurer';
 
   const load = useCallback(() => {
@@ -51,10 +54,11 @@ export function DisbursementsScreen({ user }: { user: PtaUser }) {
       return;
     }
     try {
-      await api.payDisbursement(payTarget.id, payRef.trim());
+      await api.payDisbursement(payTarget.id, payRef.trim(), payReceivedBy.trim());
       notify(`${payTarget.dv_no} marked as paid`);
       setPayTarget(null);
       setPayRef('');
+      setPayReceivedBy('');
       setError(null);
       load();
     } catch (err) {
@@ -77,7 +81,7 @@ export function DisbursementsScreen({ user }: { user: PtaUser }) {
           <p className="text-dim">Draft → Approved (President) → Paid (Treasurer) · auto-numbered DV</p>
         </div>
         <div className="page-actions">
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New disbursement</button>
+          {isTreasurer && <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New disbursement</button>}
         </div>
       </div>
 
@@ -130,8 +134,17 @@ export function DisbursementsScreen({ user }: { user: PtaUser }) {
                         <button className="btn-ghost sm" onClick={() => void approve(d)} title={`Approve as ${PTA_ROLE_LABELS[user.role]}`}>✓ Approve</button>
                       )}
                       {d.status === 'APPROVED' && isTreasurer && (
-                        <button className="btn-ghost sm" onClick={() => setPayTarget(d)}>💵 Mark paid</button>
+                        <button
+                          className="btn-ghost sm"
+                          onClick={() => {
+                            setPayTarget(d);
+                            setPayReceivedBy(d.received_by || d.payee);
+                          }}
+                        >
+                          💵 Mark paid
+                        </button>
                       )}
+                      <button className="btn-ghost sm" onClick={() => setVoucher(d)}>🖨 Voucher</button>
                       {d.status === 'DRAFT' && (
                         <button className="btn-icon danger" title="Delete draft" onClick={() => void remove(d)}>🗑</button>
                       )}
@@ -172,13 +185,19 @@ export function DisbursementsScreen({ user }: { user: PtaUser }) {
             <label>Check / reference number</label>
             <input value={payRef} onChange={(e) => { setPayRef(e.target.value); setError(null); }} placeholder="e.g. Check 000456" autoFocus />
           </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label>Received by</label>
+            <input value={payReceivedBy} onChange={(e) => { setPayReceivedBy(e.target.value); setError(null); }} placeholder="Who received the payment" />
+          </div>
           {error && <p className="field-hint sms-error">{error}</p>}
           <div className="form-actions">
-            <button className="btn-ghost" onClick={() => setPayTarget(null)}>Cancel</button>
+            <button className="btn-ghost" onClick={() => { setPayTarget(null); setPayReceivedBy(''); }}>Cancel</button>
             <button className="btn-primary" onClick={() => void pay()}>Confirm payment</button>
           </div>
         </Modal>
       )}
+
+      {voucher && <VoucherModal d={voucher} onClose={() => setVoucher(null)} />}
 
       {toast && <Toast message={toast} />}
     </div>
@@ -360,6 +379,48 @@ function AttachmentsModal({ disbursement, onClose, notify }: { disbursement: Dis
           </tbody>
         </table>
       )}
+    </Modal>
+  );
+}
+
+function VoucherModal({ d, onClose }: { d: Disbursement; onClose: () => void }) {
+  return (
+    <Modal title={`Disbursement Voucher — ${d.dv_no}`} onClose={onClose} wide>
+      <PrintHeader />
+      <h3 className="print-doc-title">Disbursement Voucher</h3>
+      <div className="voucher">
+        <div className="voucher-grid">
+          <div><span>DV No.</span><strong className="mono">{d.dv_no}</strong></div>
+          <div><span>Date</span><strong>{fmtDate(d.date)}</strong></div>
+          <div><span>Fund</span><strong>{d.fund_name}</strong></div>
+          <div><span>Payee</span><strong>{d.payee}</strong></div>
+          <div><span>Purpose</span><strong>{d.purpose}</strong></div>
+          <div><span>Amount</span><strong>{fmtMoney(d.amount)}</strong></div>
+          {d.reference_no && <div><span>Reference</span><strong className="mono">{d.reference_no}</strong></div>}
+          <div><span>Status</span><strong><DisbStatusPill status={d.status} /></strong></div>
+        </div>
+        {d.notes && <p className="text-dim voucher-notes">{d.notes}</p>}
+        <div className="signatories">
+          <div className="signatory">
+            <div className="signatory-line" />
+            <div className="signatory-name">{d.created_by || '—'}</div>
+            <div className="signatory-role">Prepared by</div>
+          </div>
+          <div className="signatory">
+            <div className="signatory-line" />
+            <div className="signatory-name">{d.approved_by || '—'}</div>
+            <div className="signatory-role">Approved by</div>
+          </div>
+          <div className="signatory">
+            <div className="signatory-line" />
+            <div className="signatory-name">{d.received_by || '—'}</div>
+            <div className="signatory-role">Received by</div>
+          </div>
+        </div>
+      </div>
+      <div className="form-actions">
+        <button className="btn-primary" onClick={() => printModal(`Disbursement Voucher ${d.dv_no}`)}>🖨 Print voucher</button>
+      </div>
     </Modal>
   );
 }

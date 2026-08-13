@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Collection, CollectionDetail, Family, FamilyChild } from '../../shared/types';
 import { api } from '../lib/api';
-import { Modal, Spinner, Toast, fmtDateTime, fmtMoney, todayIso } from '../components/shared';
+import { Modal, PrintHeader, Spinner, Toast, fmtDateTime, fmtMoney, printModal, todayIso } from '../components/shared';
 
 export function CollectionsScreen() {
   const [rows, setRows] = useState<Collection[] | null>(null);
@@ -256,11 +256,13 @@ export function CollectionsScreen() {
       </div>
 
       {(detail || detailLoading) && (
-        <Modal title={detail ? `Official Receipt ${detail.or_no}` : 'Official Receipt'} onClose={closeDetail}>
+        <Modal title={detail ? `Official Receipt ${detail.or_no} — ${detail.guardian_name}` : 'Official Receipt'} onClose={closeDetail}>
           {detailLoading || !detail ? (
             <Spinner label="Loading breakdown…" />
           ) : (
             <div className="receipt">
+              <PrintHeader />
+              <h3 className="print-doc-title">Official Receipt {detail.or_no}</h3>
               <p className="receipt-line"><span>Family</span><strong>{detail.guardian_name}</strong></p>
               <p className="receipt-line"><span>Amount</span><strong>{fmtMoney(detail.amount)}</strong></p>
               <p className="receipt-line"><span>Date</span><span>{fmtDateTime(detail.collected_at)}</span></p>
@@ -284,7 +286,7 @@ export function CollectionsScreen() {
                 </tbody>
               </table>
               <div className="form-actions">
-                <button className="btn-primary" onClick={() => window.print()}>🖨 Print receipt</button>
+                <button className="btn-primary" onClick={() => printModal(`Official Receipt ${detail.or_no} — ${detail.guardian_name}`)}>🖨 Print receipt</button>
               </div>
             </div>
           )}

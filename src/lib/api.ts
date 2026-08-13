@@ -42,6 +42,7 @@ import type {
   PtaUpdateStatus,
   PtaUser,
   PtaUserInput,
+  SchoolInfo,
   SectionCollectionRow,
   SectionFamilyRow,
   StatementOfAccount,
@@ -93,7 +94,7 @@ class MockApi implements PtaApi {
   private disbursements: Disbursement[] = [];
   private advances: Advance[] = [];
   private liquidationItems: (LiquidationItem & { attachment_file?: string })[] = [];
-  private settings: PtaSettings = { school_year: DEMO_YEAR, or_prefix: 'OR-', dv_prefix: 'DV-' };
+  private settings: PtaSettings = { school_year: DEMO_YEAR, or_prefix: 'OR-', dv_prefix: 'DV-', print_header: '' };
   private seq = { collection: 1, charge: 1, rule: 1, disb: 1, advance: 1, item: 1, cp: 1, fa: 1, att: 1 };
   private attachments: Attachment[] = [];
   private familySeq = 0;
@@ -243,6 +244,7 @@ class MockApi implements PtaApi {
         student_count: active.length,
         is_active: active.length > 0,
         created_at: existing?.created_at ?? nowIso(),
+        balance: 0,
       });
     }
     this.families = next;
@@ -264,7 +266,12 @@ class MockApi implements PtaApi {
         (f) => f.guardian_name.toLowerCase().includes(q) || f.guardian_address.toLowerCase().includes(q) || this.childrenOf(f).some((c) => c.full_name.toLowerCase().includes(q)),
       );
     }
-    return list.sort((a, b) => a.guardian_name.localeCompare(b.guardian_name));
+    return list
+      .map((f) => ({
+        ...f,
+        balance: round2(this.charges.filter((c) => c.family_id === f.id).reduce((s, c) => s + (c.amount - c.paid_amount), 0)),
+      }))
+      .sort((a, b) => a.guardian_name.localeCompare(b.guardian_name));
   }
 
   async getFamilyDetail(familyId: number): Promise<FamilyDetail> {
@@ -540,6 +547,7 @@ class MockApi implements PtaApi {
     return { rows: rows.slice(filter.offset ?? 0, (filter.offset ?? 0) + (filter.limit ?? 50)), total };
   }
   async createDisbursement(input: DisbursementInput): Promise<Disbursement> {
+    this.requireRoles('treasurer');
     const actor = this.actorName();
     const fund = this.funds.find((f) => f.id === input.fund_id);
     if (!fund) throw new Error('Fund not found.');
@@ -550,6 +558,7 @@ class MockApi implements PtaApi {
       fund_id: input.fund_id,
       fund_name: fund.name,
       payee: input.payee,
+      received_by: '',
       purpose: input.purpose,
       amount: round2(Number(input.amount)),
       date: input.date ?? nowIso().slice(0, 10),
@@ -567,7 +576,7 @@ class MockApi implements PtaApi {
     return d;
   }
   async approveDisbursement(id: number): Promise<Disbursement> {
-    this.requireRoles('president', 'vice_president');
+    this.requireRoles('president');
     const d = this.disbursements.find((x) => x.id === id);
     if (!d) throw new Error('Disbursement not found.');
     if (d.status !== 'DRAFT') throw new Error('Only draft disbursements can be approved.');
@@ -576,7 +585,7 @@ class MockApi implements PtaApi {
     d.approved_at = nowIso();
     return d;
   }
-  async payDisbursement(id: number, referenceNo: string): Promise<Disbursement> {
+  async payDisbursement(id: number, referenceNo: string, receivedBy: string): Promise<Disbursement> {
     this.requireRoles('treasurer');
     const d = this.disbursements.find((x) => x.id === id);
     if (!d) throw new Error('Disbursement not found.');
@@ -585,6 +594,7 @@ class MockApi implements PtaApi {
     d.paid_by = this.actorName();
     d.paid_at = nowIso();
     d.reference_no = referenceNo;
+    d.received_by = receivedBy.trim();
     return d;
   }
   async deleteDisbursement(id: number): Promise<void> {
@@ -720,6 +730,10 @@ class MockApi implements PtaApi {
   async listSchoolYears(): Promise<string[]> {
     this.requireUser();
     return [DEMO_YEAR, '2025 - 2026'];
+  }
+  async getSchoolInfo(): Promise<SchoolInfo> {
+    // Public (no login required). Browser mock: name only, no logo file.
+    return { school_name: 'Lucena National High School', logo_url: '' };
   }
 
   // ---- app updates (browser mock: updater lives in the packaged app) --------------------------
@@ -904,8 +918,8 @@ class MockApi implements PtaApi {
     const fund = this.funds[0];
     if (!fund) return;
     this.disbursements.push(
-      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0001`, fund_id: fund.id, fund_name: fund.name, payee: 'Sta. Maria Print Shop', purpose: 'PTA ID lanyards for School Fair', amount: 1200, date: nowIso().slice(0, 10), status: 'PAID', created_by: 'Mrs. Alma Santos', approved_by: 'Mrs. Alma Santos', approved_at: nowIso(), paid_by: 'Mr. Ben Cruz', paid_at: nowIso(), reference_no: 'Check 000123', notes: '', created_at: nowIso() },
-      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0002`, fund_id: fund.id, fund_name: fund.name, payee: 'Rizal Food Supply', purpose: 'Awards & tokens — Recognition Day', amount: 2500, date: nowIso().slice(0, 10), status: 'DRAFT', created_by: 'Ms. Carol Lim', approved_by: null, approved_at: null, paid_by: null, paid_at: null, reference_no: '', notes: 'Waiting for President approval', created_at: nowIso() },
+      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0001`, fund_id: fund.id, fund_name: fund.name, payee: 'Sta. Maria Print Shop', received_by: 'Mr. Rey Santos', purpose: 'PTA ID lanyards for School Fair', amount: 1200, date: nowIso().slice(0, 10), status: 'PAID', created_by: 'Mrs. Alma Santos', approved_by: 'Mrs. Alma Santos', approved_at: nowIso(), paid_by: 'Mr. Ben Cruz', paid_at: nowIso(), reference_no: 'Check 000123', notes: '', created_at: nowIso() },
+      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0002`, fund_id: fund.id, fund_name: fund.name, payee: 'Rizal Food Supply', received_by: '', purpose: 'Awards & tokens — Recognition Day', amount: 2500, date: nowIso().slice(0, 10), status: 'DRAFT', created_by: 'Ms. Carol Lim', approved_by: null, approved_at: null, paid_by: null, paid_at: null, reference_no: '', notes: 'Waiting for President approval', created_at: nowIso() },
     );
   }
 

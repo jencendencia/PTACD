@@ -20,6 +20,7 @@ type DisbRow = {
   fund_id: number;
   fund_name: string;
   payee: string;
+  received_by: string;
   purpose: string;
   amount: number;
   date: string;
@@ -40,6 +41,7 @@ const toDisb = (r: DisbRow): Disbursement => ({
   fund_id: r.fund_id,
   fund_name: r.fund_name,
   payee: r.payee,
+  received_by: r.received_by ?? '',
   purpose: r.purpose,
   amount: Number(r.amount),
   date: r.date,
@@ -88,7 +90,7 @@ export async function listDisbursements(filter: DisbursementFilter = {}): Promis
   const limit = Math.min(filter.limit ?? 50, 500);
   const offset = filter.offset ?? 0;
   const rows = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.purpose, d.amount,
+    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
             d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
             d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
      FROM pta_disbursements d
@@ -113,12 +115,12 @@ export async function createDisbursement(input: DisbursementInput, actorName: st
   const dvNo = await nextDvNo(get().dv_prefix, get().school_year);
   const date = input.date ? String(input.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
   const res = await db.execute(
-    `INSERT INTO pta_disbursements (dv_no, fund_id, payee, purpose, amount, d_date, status, created_by, notes)
-     VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)`,
+    `INSERT INTO pta_disbursements (dv_no, fund_id, payee, received_by, purpose, amount, d_date, status, created_by, notes)
+     VALUES (?, ?, ?, '', ?, ?, ?, 'DRAFT', ?, ?)`,
     [dvNo, input.fund_id, payee, purpose, amount, date, actorName, String(input.notes ?? '').trim()],
   );
   const [row] = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.purpose, d.amount,
+    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
             d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
             d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
      FROM pta_disbursements d JOIN pta_funds f ON f.id = d.fund_id WHERE d.id = ?`,
@@ -129,7 +131,7 @@ export async function createDisbursement(input: DisbursementInput, actorName: st
 
 export async function approveDisbursement(id: number, actorName: string): Promise<Disbursement> {
   const [row] = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.purpose, d.amount,
+    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
             d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
             d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
      FROM pta_disbursements d JOIN pta_funds f ON f.id = d.fund_id WHERE d.id = ?`,
@@ -144,9 +146,9 @@ export async function approveDisbursement(id: number, actorName: string): Promis
   return { ...toDisb(row), status: 'APPROVED', approved_by: actorName, approved_at: new Date().toISOString() };
 }
 
-export async function payDisbursement(id: number, referenceNo: string, actorName: string): Promise<Disbursement> {
+export async function payDisbursement(id: number, referenceNo: string, receivedBy: string, actorName: string): Promise<Disbursement> {
   const [row] = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.purpose, d.amount,
+    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
             d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
             d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
      FROM pta_disbursements d JOIN pta_funds f ON f.id = d.fund_id WHERE d.id = ?`,
@@ -155,8 +157,8 @@ export async function payDisbursement(id: number, referenceNo: string, actorName
   if (!row) throw new Error('Disbursement not found.');
   if (row.status !== 'APPROVED') throw new Error('Only approved disbursements can be paid.');
   await db.execute(
-    "UPDATE pta_disbursements SET status = 'PAID', paid_by = ?, paid_at = NOW(), reference_no = ? WHERE id = ?",
-    [actorName, String(referenceNo ?? '').trim(), id],
+    "UPDATE pta_disbursements SET status = 'PAID', paid_by = ?, paid_at = NOW(), reference_no = ?, received_by = ? WHERE id = ?",
+    [actorName, String(referenceNo ?? '').trim(), String(receivedBy ?? '').trim(), id],
   );
   return {
     ...toDisb(row),
@@ -164,6 +166,7 @@ export async function payDisbursement(id: number, referenceNo: string, actorName
     paid_by: actorName,
     paid_at: new Date().toISOString(),
     reference_no: String(referenceNo ?? '').trim(),
+    received_by: String(receivedBy ?? '').trim(),
   };
 }
 

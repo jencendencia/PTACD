@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Family, FamilyDetail, StatementOfAccount } from '../../shared/types';
 import { api } from '../lib/api';
-import { Modal, Spinner, fmtDate, fmtMoney } from '../components/shared';
+import { Modal, PrintHeader, Spinner, fmtDate, fmtMoney, printModal } from '../components/shared';
 
 export function FamiliesScreen() {
   const [families, setFamilies] = useState<Family[] | null>(null);
@@ -58,6 +58,7 @@ export function FamiliesScreen() {
                 <th className="num">Children</th>
                 <th>Contact</th>
                 <th>Statement</th>
+                <th className="num">Balance</th>
                 <th></th>
               </tr>
             </thead>
@@ -70,6 +71,9 @@ export function FamiliesScreen() {
                   <td>{f.parent_phone || '—'}</td>
                   <td>
                     <button className="btn-ghost sm" onClick={() => void openStatement(f.id)}>🧾 Statement</button>
+                  </td>
+                  <td className="num">
+                    <span className={f.balance > 0 ? 'neg' : 'pos'}>{fmtMoney(f.balance)}</span>
                   </td>
                   <td>
                     <button className="btn-icon" title="Details" onClick={() => void openDetail(f.id)}>👁</button>
@@ -120,6 +124,8 @@ export function FamiliesScreen() {
             SY {statement.school_year} · {statement.family.student_count} child{statement.family.student_count === 1 ? '' : 'ren'}
           </p>
           <div className="statement-print">
+            <PrintHeader />
+            <h3 className="print-doc-title">Statement of Account — {statement.family.guardian_name}</h3>
             <table className="table">
               <thead>
                 <tr><th>Date</th><th>Ref</th><th>Description</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr>
@@ -150,7 +156,7 @@ export function FamiliesScreen() {
             </table>
           </div>
           <div className="form-actions">
-            <button className="btn-primary" onClick={() => window.print()}>🖨 Print statement</button>
+            <button className="btn-primary" onClick={() => printModal(`Statement of Account — ${statement.family.guardian_name}`)}>🖨 Print statement</button>
           </div>
         </Modal>
       )}

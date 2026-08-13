@@ -38,6 +38,7 @@ import type {
   PtaUpdateStatus,
   PtaUser,
   PtaUserInput,
+  SchoolInfo,
   PtaWindowControls,
   SectionCollectionRow,
   SectionFamilyRow,
@@ -96,8 +97,8 @@ const api: PtaApi = {
   createDisbursement: (input: DisbursementInput) =>
     ipcRenderer.invoke('pta:createDisbursement', input) as Promise<Disbursement>,
   approveDisbursement: (id: number) => ipcRenderer.invoke('pta:approveDisbursement', id) as Promise<Disbursement>,
-  payDisbursement: (id: number, referenceNo: string) =>
-    ipcRenderer.invoke('pta:payDisbursement', id, referenceNo) as Promise<Disbursement>,
+  payDisbursement: (id: number, referenceNo: string, receivedBy: string) =>
+    ipcRenderer.invoke('pta:payDisbursement', id, referenceNo, receivedBy) as Promise<Disbursement>,
   deleteDisbursement: (id: number) => ipcRenderer.invoke('pta:deleteDisbursement', id) as Promise<void>,
   listDisbursementAttachments: (disbursementId: number) =>
     ipcRenderer.invoke('pta:listDisbAttachments', disbursementId) as Promise<Attachment[]>,
@@ -122,6 +123,7 @@ const api: PtaApi = {
   updatePtaSettings: (patch: Partial<PtaSettings>) =>
     ipcRenderer.invoke('pta:updateSettings', patch) as Promise<PtaSettings>,
   listSchoolYears: () => ipcRenderer.invoke('pta:listSchoolYears') as Promise<string[]>,
+  getSchoolInfo: () => ipcRenderer.invoke('pta:schoolInfo') as Promise<SchoolInfo>,
 
   getAppVersion: () => ipcRenderer.invoke('pta:getAppVersion') as Promise<string>,
   checkForUpdates: () => ipcRenderer.invoke('pta:checkForUpdates') as Promise<PtaUpdateStatus>,

@@ -48,6 +48,8 @@ export interface Family {
   student_count: number;
   is_active: boolean;
   created_at: string;
+  /** Outstanding balance (charges − paid) for the current school year. */
+  balance: number;
 }
 
 export interface FamilyChild {
@@ -197,6 +199,8 @@ export interface Disbursement {
   fund_id: number;
   fund_name: string;
   payee: string;
+  /** Person who received the payment (signs the "Received by" line). */
+  received_by: string;
   purpose: string;
   amount: number;
   date: string;
@@ -292,6 +296,9 @@ export interface PtaSettings {
   school_year: string;
   or_prefix: string;
   dv_prefix: string;
+  /** Custom letterhead text for printed statements/receipts; empty = default
+   *  school logo + name from the shared TapIn School settings. */
+  print_header: string;
 }
 
 // ---- Reports -----------------------------------------------------------------------
@@ -466,7 +473,7 @@ export interface PtaApi {
   listDisbursements(filter?: DisbursementFilter): Promise<{ rows: Disbursement[]; total: number }>;
   createDisbursement(input: DisbursementInput): Promise<Disbursement>;
   approveDisbursement(id: number): Promise<Disbursement>;
-  payDisbursement(id: number, referenceNo: string): Promise<Disbursement>;
+  payDisbursement(id: number, referenceNo: string, receivedBy: string): Promise<Disbursement>;
   deleteDisbursement(id: number): Promise<void>;
   listDisbursementAttachments(disbursementId: number): Promise<Attachment[]>;
   addDisbursementAttachment(disbursementId: number, file: PtaFilePick): Promise<Attachment>;
@@ -484,6 +491,8 @@ export interface PtaApi {
   getPtaSettings(): Promise<PtaSettings>;
   updatePtaSettings(patch: Partial<PtaSettings>): Promise<PtaSettings>;
   listSchoolYears(): Promise<string[]>;
+  /** School name + logo from the shared TapIn School settings table (public). */
+  getSchoolInfo(): Promise<SchoolInfo>;
   // app updates
   getAppVersion(): Promise<string>;
   /** Starts a check; returns the immediate state ('checking' or 'unavailable'). */
@@ -508,6 +517,13 @@ export interface PtaApi {
   sectionFamilies(schoolYear: string, gradeSection: string): Promise<SectionFamilyRow[]>;
   collectionsReport(from?: string, to?: string): Promise<CollectionsSummaryRow[]>;
   statementOfAccount(familyId: number, schoolYear: string): Promise<StatementOfAccount>;
+}
+
+/** School branding from the shared TapIn School settings table.
+ *  `logo_url` is a tapin-logo:// URL served by the main process. */
+export interface SchoolInfo {
+  school_name: string;
+  logo_url: string;
 }
 
 /** A file picked for an attachment. In Electron this is a copied local file path;

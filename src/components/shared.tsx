@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AdvanceStatus, DisbursementStatus } from '../../shared/types';
+import type { AdvanceStatus, DisbursementStatus, SchoolInfo } from '../../shared/types';
+import { api } from '../lib/api';
 
 /** Today's date as YYYY-MM-DD in the LOCAL timezone (toISOString is UTC and
  *  can return yesterday before 8 AM in PH time). */
@@ -37,6 +39,49 @@ export function Spinner({ label }: { label?: string }) {
 
 export function Toast({ message, tone = 'success' }: { message: string; tone?: 'success' | 'error' }) {
   return <div className={`toast ${tone === 'success' ? 'toast-success' : 'toast-error'}`}>{message}</div>;
+}
+
+/** Letterhead for printed statements/receipts: school logo image + text.
+ *  The text is the custom header from Settings when provided, otherwise the
+ *  school name. Self-fetches its data. */
+export function PrintHeader() {
+  const [school, setSchool] = useState<SchoolInfo | null>(null);
+  const [custom, setCustom] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api.getSchoolInfo().then(setSchool).catch(() => undefined);
+    void api
+      .getPtaSettings()
+      .then((s) => setCustom((s.print_header ?? '').trim() || null))
+      .catch(() => undefined);
+  }, []);
+
+  return (
+    <div className="print-header">
+      {school?.logo_url && <img className="print-header-logo" src={school.logo_url} alt="School logo" />}
+      <div className="print-header-text">
+        {custom ? (
+          <div className="print-header-custom">{custom}</div>
+        ) : (
+          <div className="print-header-name">{school?.school_name || 'PTA CD'}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Print only the open modal: expands it to full height (no clipped scrollbar)
+ *  and hides the page content behind it. window.print() blocks while the dialog
+ *  is open, so the class is active for the whole print.
+ *  Pass `title` to make the Save-as-PDF dialog suggest a matching filename
+ *  (Chromium uses document.title for the default file name). */
+export function printModal(title?: string): void {
+  const prevTitle = document.title;
+  if (title) document.title = title;
+  document.body.classList.add('print-modal');
+  window.print();
+  document.body.classList.remove('print-modal');
+  if (title) document.title = prevTitle;
 }
 
 export function Modal({

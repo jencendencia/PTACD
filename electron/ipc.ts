@@ -92,6 +92,7 @@ import type {
   PtaDashboard,
   PtaDbConfig,
   PtaDbStatus,
+  SchoolInfo,
   PtaFilePick,
   PtaLicenseResult,
   PtaLicenseStatus,
@@ -248,6 +249,13 @@ export function registerIpc(): void {
   );
   ipcMain.handle('pta:deleteComponent', async (_e, id: number): Promise<void> => {
     requireUser();
+    const [count] = await db.query<{ n: number }[]>(
+      'SELECT COUNT(*) AS n FROM pta_charges WHERE component_id = ?',
+      [id],
+    );
+    if (Number(count?.n ?? 0) > 0) {
+      throw new Error('This component already has charges and cannot be deleted.');
+    }
     await db.execute('DELETE FROM pta_fee_components WHERE id = ?', [id]);
   });
   ipcMain.handle('pta:recomputeCharges', async (): Promise<number> => {
@@ -313,16 +321,18 @@ export function registerIpc(): void {
     return listDisbursements(filter);
   });
   ipcMain.handle('pta:createDisbursement', async (_e, input: DisbursementInput): Promise<Disbursement> => {
-    const u = requireUser();
+    // Drafts are prepared by the Treasurer.
+    const u = requireRoles('treasurer');
     return createDisbursement(input, u.full_name || u.username);
   });
   ipcMain.handle('pta:approveDisbursement', async (_e, id: number): Promise<Disbursement> => {
-    const u = requireRoles('president', 'vice_president');
+    // Approval is reserved to the President.
+    const u = requireRoles('president');
     return approveDisbursement(id, u.full_name || u.username);
   });
-  ipcMain.handle('pta:payDisbursement', async (_e, id: number, referenceNo: string): Promise<Disbursement> => {
+  ipcMain.handle('pta:payDisbursement', async (_e, id: number, referenceNo: string, receivedBy: string): Promise<Disbursement> => {
     const u = requireRoles('treasurer');
-    return payDisbursement(id, referenceNo, u.full_name || u.username);
+    return payDisbursement(id, referenceNo, receivedBy, u.full_name || u.username);
   });
   ipcMain.handle('pta:deleteDisbursement', async (_e, id: number): Promise<void> => {
     requireUser();
@@ -406,6 +416,15 @@ export function registerIpc(): void {
     requireUser();
     const rows = await db.query<{ name: string }[]>('SELECT name FROM school_years ORDER BY name');
     return rows.map((r) => r.name);
+  });
+  // School branding — intentionally public (shown on the login screen, so no
+  // requireUser here). Read from the shared TapIn School settings table.
+  ipcMain.handle('pta:schoolInfo', async (): Promise<SchoolInfo> => {
+    const rows = await db.query<{ setting_key: string; setting_value: string }[]>(
+      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('school_name', 'logo_url')",
+    );
+    const map = new Map(rows.map((r) => [r.setting_key, r.setting_value]));
+    return { school_name: map.get('school_name') ?? '', logo_url: map.get('logo_url') ?? '' };
   });
 
   // ---- App updates (Settings screen — requires a signed-in user) ------------------------

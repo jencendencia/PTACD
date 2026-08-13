@@ -1,7 +1,7 @@
 // PTA CD shell: license gate → login gate → sidebar navigation across all modules.
 import { useEffect, useState } from 'react';
 import { PTA_ROLE_LABELS } from '../shared/types';
-import type { PtaLicenseStatus, PtaSettings, PtaUser } from '../shared/types';
+import type { PtaLicenseStatus, PtaSettings, PtaUser, SchoolInfo } from '../shared/types';
 import { api } from './lib/api';
 import { TitleBar } from './components/TitleBar';
 import { Spinner } from './components/shared';
@@ -35,6 +35,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [settings, setSettings] = useState<PtaSettings | null>(null);
   const [schoolYears, setSchoolYears] = useState<string[]>([]);
+  const [school, setSchool] = useState<SchoolInfo | null>(null);
 
   // Check whether this machine is activated, and restore a session the main
   // process still holds (e.g. after a renderer reload that followed a database
@@ -46,6 +47,8 @@ export default function App() {
     void api.me().then((u) => {
       if (u) setUser(u);
     });
+    // School branding is public and shown before login.
+    void api.getSchoolInfo().then(setSchool).catch(() => undefined);
   }, []);
 
   // Refresh settings on login and on every tab switch so the sidebar selector
@@ -70,7 +73,7 @@ export default function App() {
 
   return (
     <div className="pta-frame">
-      <TitleBar settings={settings} schoolYears={schoolYears} onSwitchYear={(y) => void switchYear(y)} />
+      <TitleBar settings={settings} schoolYears={schoolYears} onSwitchYear={(y) => void switchYear(y)} school={school} />
       <div className="pta-body">
         {!user ? (
           license === null ? (
@@ -86,10 +89,14 @@ export default function App() {
           <div className="pta-app">
             <aside className="pta-sidebar">
               <div className="pta-brand">
-                <div className="pta-logo">🎓</div>
+                {school?.logo_url ? (
+                  <img className="school-logo-img" src={school.logo_url} alt="School logo" />
+                ) : (
+                  <div className="pta-logo">🎓</div>
+                )}
                 <div>
-                  <div className="pta-name">PTA CD</div>
-                  <div className="pta-tagline">Collection & Disbursement</div>
+                  <div className="pta-name">{school?.school_name || 'PTA CD'}</div>
+                  <div className="pta-tagline">Collection &amp; Disbursement</div>
                 </div>
               </div>
               <nav className="pta-nav">

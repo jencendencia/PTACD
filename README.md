@@ -62,7 +62,10 @@ seeds the default **admin / admin** officer account.
 The app self-creates all `pta_*` tables on boot (idempotent). The first boot
 seeds a default **admin / admin** officer account (change it after first login).
 
-## Billing example (default fee components)
+## Billing example (fee components)
+
+Only **Membership** is seeded by default; other components are added in Settings.
+Example of how per-family vs. per-child billing works:
 
 ```
 650 per child = 200 Membership (per family) + 200 Misc (per child) + 250 Other (per child)

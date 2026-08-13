@@ -4,7 +4,7 @@
 // (no Electron) the window controls are hidden and only the brand is shown.
 import { useEffect, useState } from 'react';
 import { api, isElectron } from '../lib/api';
-import type { PtaDbConfig, PtaDbStatus, PtaSettings, PtaWindowControls } from '../../shared/types';
+import type { PtaDbConfig, PtaDbStatus, PtaSettings, PtaWindowControls, SchoolInfo } from '../../shared/types';
 import { Modal } from './shared';
 
 const getControls = (): PtaWindowControls | undefined =>
@@ -47,10 +47,12 @@ export function TitleBar({
   settings,
   schoolYears,
   onSwitchYear,
+  school,
 }: {
   settings?: PtaSettings | null;
   schoolYears?: string[];
   onSwitchYear?: (year: string) => void;
+  school?: SchoolInfo | null;
 }) {
   const [maximized, setMaximized] = useState(false);
   const [db, setDb] = useState<PtaDbStatus | null>(null);
@@ -131,7 +133,7 @@ export function TitleBar({
         <span className="titlebar-logo" aria-hidden="true">🎓</span>
         <span className="titlebar-name">PTA CD</span>
         <span className="titlebar-divider" aria-hidden="true" />
-        <span className="titlebar-sub">Collection &amp; Disbursement</span>
+        <span className="titlebar-sub">{school?.school_name || 'Collection &amp; Disbursement'}</span>
       </div>
       <div className="titlebar-status">
         {settings && schoolYears && onSwitchYear && (

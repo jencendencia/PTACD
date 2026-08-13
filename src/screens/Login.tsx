@@ -1,12 +1,17 @@
-import { useState } from 'react';
-import type { PtaUser } from '../../shared/types';
+import { useEffect, useState } from 'react';
+import type { PtaUser, SchoolInfo } from '../../shared/types';
 import { api } from '../lib/api';
 
 export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
+  const [school, setSchool] = useState<SchoolInfo | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api.getSchoolInfo().then(setSchool).catch(() => undefined);
+  }, []);
 
   const submit = async () => {
     if (busy) return;
@@ -29,8 +34,12 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="login-logo">🎓</div>
-        <h1>PTA CD</h1>
+        {school?.logo_url ? (
+          <img className="login-logo-img" src={school.logo_url} alt="School logo" />
+        ) : (
+          <div className="login-logo">🎓</div>
+        )}
+        <h1>{school?.school_name || 'PTA CD'}</h1>
         <p className="text-dim">Parent-Teacher Association — Collection & Disbursement</p>
         <form
           className="form"

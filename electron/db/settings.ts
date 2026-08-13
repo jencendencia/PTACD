@@ -2,7 +2,7 @@
 import { db } from './connection';
 import type { PtaSettings } from '../../shared/types';
 
-const DEFAULTS: PtaSettings = { school_year: '', or_prefix: 'OR-', dv_prefix: 'DV-' };
+const DEFAULTS: PtaSettings = { school_year: '', or_prefix: 'OR-', dv_prefix: 'DV-', print_header: '' };
 
 let cache: PtaSettings = { ...DEFAULTS };
 
@@ -37,6 +37,7 @@ export async function load(): Promise<PtaSettings> {
     school_year: await resolveSchoolYear(stored.school_year ?? ''),
     or_prefix: stored.or_prefix || DEFAULTS.or_prefix,
     dv_prefix: stored.dv_prefix || DEFAULTS.dv_prefix,
+    print_header: stored.print_header ?? DEFAULTS.print_header,
   };
   return { ...cache };
 }
@@ -58,6 +59,10 @@ export async function update(patch: Partial<PtaSettings>): Promise<PtaSettings> 
   await db.execute('INSERT INTO pta_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [
     'dv_prefix',
     next.dv_prefix,
+  ]);
+  await db.execute('INSERT INTO pta_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [
+    'print_header',
+    next.print_header,
   ]);
   cache = { ...next };
   return { ...cache };

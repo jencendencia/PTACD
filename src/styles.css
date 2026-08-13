@@ -242,8 +242,15 @@ body {
   background: linear-gradient(140deg, var(--emerald-soft), var(--indigo-soft));
   border: 1px solid var(--border-strong);
 }
-.pta-name { font-size: 16px; font-weight: 800; letter-spacing: 0.02em; }
+.pta-name { font-size: 14px; font-weight: 800; letter-spacing: 0.02em; line-height: 1.25; overflow-wrap: anywhere; }
 .pta-tagline { font-size: 11.5px; color: var(--text-dim); }
+.school-logo-img {
+  width: 40px; height: 40px; border-radius: 12px;
+  object-fit: cover;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  flex: none;
+}
 .pta-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
 .pta-nav-item {
   appearance: none;
@@ -432,6 +439,15 @@ body {
   background: linear-gradient(140deg, var(--emerald-soft), var(--indigo-soft));
   border: 1px solid var(--border-strong);
 }
+.login-logo-img {
+  width: 64px; height: 64px; border-radius: 18px;
+  margin: 0 auto 14px;
+  object-fit: cover;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  display: block;
+}
+.login-card h1 { overflow-wrap: anywhere; }
 .login-card h1 { margin: 0 0 4px; font-size: 26px; }
 .login-card p { margin: 0 0 20px; font-size: 13px; }
 .login-card .form { text-align: left; }
@@ -559,6 +575,46 @@ body {
 .receipt h4 { margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
 .statement-print { margin-top: 8px; }
 
+/* ---- Print letterhead: school logo image + text ---- */
+.print-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 0 14px;
+  margin-bottom: 14px;
+  border-bottom: 2px solid var(--border-strong);
+}
+.print-header-logo {
+  width: 56px; height: 56px; border-radius: 14px;
+  object-fit: cover;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  flex: none;
+}
+.print-header-text { display: flex; flex-direction: column; gap: 3px; }
+.print-header-name { font-size: 19px; font-weight: 800; letter-spacing: 0.02em; }
+.print-header-custom { font-size: 13.5px; font-weight: 600; white-space: pre-line; }
+/* Document title rendered inside the print body (the modal header itself is
+   hidden in print) — visible only in the printed output, not on screen. */
+.print-doc-title { display: none; }
+
+/* ---- Disbursement voucher ---- */
+.voucher { display: flex; flex-direction: column; gap: 14px; }
+.voucher-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; }
+.voucher-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.voucher-grid span {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.voucher-notes { margin: 0; font-size: 12.5px; }
+.signatories { display: flex; gap: 36px; margin-top: 26px; }
+.signatory { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.signatory-line { width: 100%; border-top: 2px solid #000; margin-bottom: 2px; }
+.signatory-name { font-weight: 700; font-size: 13px; text-align: center; overflow-wrap: anywhere; }
+.signatory-role { font-size: 11px; color: var(--text-dim); text-align: center; }
+
 /* ---- Liquidation ---- */
 .liq-form {
   background: var(--surface-2);
@@ -612,4 +668,34 @@ body {
   body { background: #fff; color: #000; }
   .table th { color: #444; }
   .text-dim { color: #666; }
+  * { box-shadow: none !important; }
+
+  /* Modal-only prints (statement / receipt): expand the modal to full height so
+     nothing is clipped behind a scrollbar, and hide the page content behind it. */
+  body.print-modal .page > *:not(.modal-overlay) { display: none !important; }
+  body.print-modal .modal-overlay {
+    position: static;
+    display: block;
+    background: none;
+    backdrop-filter: none;
+    padding: 0;
+  }
+  body.print-modal .modal {
+    max-height: none;
+    width: 100%;
+    border: none;
+  }
+  body.print-modal .modal-body {
+    overflow: visible;
+    padding: 0;
+  }
+  /* Hide the modal's own header — the letterhead (PrintHeader) is the top of
+     the document; the document title is rendered in the body instead. */
+  body.print-modal .modal-head { display: none !important; }
+  body.print-modal .print-doc-title {
+    display: block;
+    text-align: center;
+    font-size: 16px;
+    margin: 4px 0 12px;
+  }
 }

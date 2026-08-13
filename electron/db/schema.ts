@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS pta_disbursements (
   dv_no VARCHAR(32) NOT NULL,
   fund_id INT UNSIGNED NOT NULL,
   payee VARCHAR(120) NOT NULL,
+  received_by VARCHAR(120) NOT NULL DEFAULT '',
   purpose VARCHAR(255) NOT NULL,
   amount DECIMAL(12,2) NOT NULL,
   d_date DATE NOT NULL,
@@ -175,14 +176,24 @@ CREATE TABLE IF NOT EXISTS pta_attachments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO pta_funds (name, description) VALUES ('General Fund', 'PTA general operating fund');
-INSERT IGNORE INTO pta_fee_components (code, label, amount, applies, sort_order) VALUES ('MEMBERSHIP', 'Membership Fee', 200, 'per_family', 1);
-INSERT IGNORE INTO pta_fee_components (code, label, amount, applies, sort_order) VALUES ('MISC', 'Miscellaneous', 200, 'per_child', 2);
-INSERT IGNORE INTO pta_fee_components (code, label, amount, applies, sort_order) VALUES ('OTHER', 'Other Collectibles', 250, 'per_child', 3);
+-- Seed one example component only on a fresh install (empty table), so components
+-- deleted by the user stay deleted on subsequent app starts. MISC/OTHER are no
+-- longer seeded — they caused deleted components to resurrect on boot.
+INSERT IGNORE INTO pta_fee_components (code, label, amount, applies, sort_order) SELECT 'MEMBERSHIP', 'Membership Fee', 200, 'per_family', 1 WHERE NOT EXISTS (SELECT 1 FROM pta_fee_components);
 INSERT IGNORE INTO pta_distribution_rules (component_id, fund_id, percentage) SELECT id, (SELECT id FROM pta_funds WHERE name = 'General Fund'), 100 FROM pta_fee_components;
 `;
 
 export async function ensureSchema(query: (sql: string, params?: unknown[]) => Promise<unknown[]>): Promise<void> {
   for (const stmt of SCHEMA_SQL.split(';').map((s) => s.trim()).filter(Boolean)) {
     await query(stmt);
+  }
+  // Column migrations (idempotent — CREATE TABLE IF NOT EXISTS never alters an
+  // existing table, so new columns are added here on boot).
+  const [hasReceivedBy] = (await query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'pta_disbursements' AND column_name = 'received_by'`,
+  )) as { n: number }[];
+  if (Number(hasReceivedBy?.n ?? 0) === 0) {
+    await query("ALTER TABLE pta_disbursements ADD COLUMN received_by VARCHAR(120) NOT NULL DEFAULT '' AFTER payee");
   }
 }

@@ -13,6 +13,9 @@ export function SettingsScreen() {
   const [users, setUsers] = useState<PtaUser[] | null>(null);
   const [showComponent, setShowComponent] = useState<FeeComponent | 'new' | null>(null);
   const [showUser, setShowUser] = useState<'new' | null>(null);
+  const [componentToDelete, setComponentToDelete] = useState<FeeComponent | null>(null);
+  const [deletingComponent, setDeletingComponent] = useState(false);
+  const [deleteComponentError, setDeleteComponentError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
   // App updates
   const [appVersion, setAppVersion] = useState('…');
@@ -22,6 +25,7 @@ export function SettingsScreen() {
   const [hasToken, setHasToken] = useState(false);
   const [tokenBusy, setTokenBusy] = useState(false);
   const [showToken, setShowToken] = useState(false);
+  const [printHeaderDraft, setPrintHeaderDraft] = useState('');
 
   const load = useCallback(() => {
     void api.getPtaSettings().then(setSettings);
@@ -33,6 +37,11 @@ export function SettingsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Keep the print-header draft in sync when settings load.
+  useEffect(() => {
+    setPrintHeaderDraft(settings?.print_header ?? '');
+  }, [settings]);
 
   // Updates: load the installed version, existing GitHub token (private repos),
   // and subscribe to updater status pushed from the main process.
@@ -60,6 +69,28 @@ export function SettingsScreen() {
     await api.updatePtaSettings(patch);
     notify('Saved');
     load();
+  };
+
+  const savePrintHeader = async () => {
+    if (!settings) return;
+    await api.updatePtaSettings({ print_header: printHeaderDraft.trim() });
+    notify('Print header saved');
+    load();
+  };
+
+  const deleteComponent = async (c: FeeComponent) => {
+    setDeletingComponent(true);
+    setDeleteComponentError(null);
+    try {
+      await api.deleteFeeComponent(c.id);
+      setComponentToDelete(null);
+      notify('Component deleted');
+      load();
+    } catch (err) {
+      setDeleteComponentError((err as Error).message);
+    } finally {
+      setDeletingComponent(false);
+    }
   };
 
   // ---- Updates -------------------------------------------------------------------------
@@ -159,6 +190,25 @@ export function SettingsScreen() {
         </div>
 
         <div className="card">
+          <h3>Print header</h3>
+          <p className="field-hint">
+            Letterhead text shown beside the school logo at the top of printed statements of account
+            and official receipts. Leave empty to show the school name.
+          </p>
+          <div className="field">
+            <textarea
+              rows={2}
+              value={printHeaderDraft}
+              onChange={(e) => setPrintHeaderDraft(e.target.value)}
+              placeholder="e.g. Lucena National High School — PTA Office, Brgy. Isabang, Lucena City"
+            />
+          </div>
+          <div className="form-actions">
+            <button className="btn-ghost" onClick={() => void savePrintHeader()}>Save header</button>
+          </div>
+        </div>
+
+        <div className="card">
           <h3>Fee components</h3>
           <p className="field-hint">
             Per-family components (e.g. Membership) are billed once per family; per-child components are billed for each student.
@@ -178,11 +228,30 @@ export function SettingsScreen() {
                   <td>{c.term || '—'}</td>
                   <td>
                     <button className="btn-icon" title="Edit" onClick={() => setShowComponent(c)}>✎</button>
+                    <button
+                      className="btn-icon danger"
+                      title="Delete component"
+                      onClick={() => {
+                        setDeleteComponentError(null);
+                        setComponentToDelete(c);
+                      }}
+                    >
+                      🗑
+                    </button>
                   </td>
                 </tr>
               ))}
               {components?.length === 0 && <tr><td colSpan={6} className="empty-cell">No components.</td></tr>}
             </tbody>
+            {components && components.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td colSpan={2}>Total of all fees</td>
+                  <td className="num">{fmtMoney(components.reduce((s, c) => s + Number(c.amount), 0))}</td>
+                  <td colSpan={3}></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
           <div className="form-actions">
             <button className="btn-ghost" onClick={() => setShowComponent('new')}>+ Add component</button>
@@ -291,6 +360,24 @@ export function SettingsScreen() {
           }}
         />
       )}
+      {componentToDelete && (
+        <Modal title="Delete fee component" onClose={() => { if (!deletingComponent) setComponentToDelete(null); }}>
+          <p>
+            Are you sure you want to delete <strong>{componentToDelete.code} — {componentToDelete.label}</strong>?
+            This cannot be undone.
+          </p>
+          <p className="field-hint">
+            Its distribution rules are removed automatically. Components that already have charges cannot be deleted.
+          </p>
+          {deleteComponentError && <p className="field-hint sms-error">{deleteComponentError}</p>}
+          <div className="form-actions">
+            <button className="btn-ghost" onClick={() => setComponentToDelete(null)} disabled={deletingComponent}>Cancel</button>
+            <button className="btn-danger" onClick={() => void deleteComponent(componentToDelete)} disabled={deletingComponent}>
+              {deletingComponent ? 'Deleting…' : '🗑 Delete component'}
+            </button>
+          </div>
+        </Modal>
+      )}
       {showUser && (
         <UserModal
           onClose={() => setShowUser(null)}
@@ -371,7 +458,16 @@ function ComponentModal({
         <div className="field-row">
           <div className="field">
             <label>Code</label>
-            <input value={form.code} onChange={(e) => set('code', e.target.value.toUpperCase())} placeholder="e.g. MISC" />
+            <input
+              value={form.code}
+              onChange={(e) => set('code', e.target.value.toUpperCase())}
+              placeholder="e.g. MISC"
+              disabled={!!existing}
+              title={existing ? 'Code cannot be changed' : undefined}
+            />
+            {existing && (
+              <p className="field-hint">Code and term can't be changed after creation. To change them, delete this component and add a new one.</p>
+            )}
           </div>
           <div className="field">
             <label>Amount (₱)</label>
@@ -392,7 +488,13 @@ function ComponentModal({
           </div>
           <div className="field">
             <label>Term (optional)</label>
-            <input value={form.term ?? ''} onChange={(e) => set('term', e.target.value)} placeholder="e.g. 1st" />
+            <input
+              value={form.term ?? ''}
+              onChange={(e) => set('term', e.target.value)}
+              placeholder="e.g. 1st"
+              disabled={!!existing}
+              title={existing ? 'Term cannot be changed' : undefined}
+            />
           </div>
         </div>
         {error && <p className="field-hint sms-error">{error}</p>}
@@ -407,11 +509,13 @@ function ComponentModal({
 
 function UserModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<PtaUserInput>({ username: '', full_name: '', role: 'secretary', password: '' });
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     if (!form.username.trim() || !form.full_name.trim()) return setError('Username and full name are required.');
     if (String(form.password ?? '').length < 4) return setError('Password must be at least 4 characters.');
+    if (form.password !== confirm) return setError('Passwords do not match.');
     try {
       await api.createPtaUser(form);
       onSaved();
@@ -444,6 +548,10 @@ function UserModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
         <div className="field">
           <label>Password</label>
           <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 4 characters" />
+        </div>
+        <div className="field">
+          <label>Confirm password</label>
+          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Re-enter password" />
         </div>
         {error && <p className="field-hint sms-error">{error}</p>}
         <div className="form-actions">
