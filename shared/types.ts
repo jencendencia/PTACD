@@ -52,8 +52,10 @@ export interface Family {
   student_count: number;
   is_active: boolean;
   created_at: string;
-  /** Outstanding balance (charges − paid) for the current school year. */
+  /** Outstanding balance (charges − paid) across ALL school years. */
   balance: number;
+  /** Outstanding balance from school years before the current one. */
+  prior_balance: number;
 }
 
 export interface FamilyChild {
@@ -181,6 +183,12 @@ export interface CollectionInput {
   amount: number;
   /** Optional: target a specific child (student) — their charges are settled first. */
   student_id?: number;
+  /**
+   * Optional: which school year's charges the payment settles.
+   * Omit → current school year only (default). '*' → all years, oldest first.
+   * Any other string → that school year only.
+   */
+  pay_year?: string;
   collected_at?: string;
   notes?: string;
 }
@@ -365,6 +373,22 @@ export interface StatementOfAccount {
   total_charges: number;
   total_paid: number;
   balance: number;
+  /** Unpaid balance carried in from school years before the statement year. */
+  balance_forward: number;
+}
+
+/** Outstanding charges for one school year (balance modal / pay-by-year). */
+export interface OutstandingYear {
+  school_year: string;
+  total_due: number;
+  charges: Charge[];
+}
+
+export interface FamilyOutstanding {
+  family_id: number;
+  guardian_name: string;
+  total_due: number;
+  years: OutstandingYear[];
 }
 
 // ---- Dashboard ----------------------------------------------------------------------
@@ -463,6 +487,7 @@ export interface PtaApi {
   syncFamilies(): Promise<number>;
   listFamilies(search?: string): Promise<Family[]>;
   getFamilyDetail(familyId: number): Promise<FamilyDetail>;
+  familyOutstanding(familyId: number): Promise<FamilyOutstanding>;
   // components
   listFeeComponents(): Promise<FeeComponent[]>;
   saveFeeComponent(input: FeeComponentInput): Promise<FeeComponent>;

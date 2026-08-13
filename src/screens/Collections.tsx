@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Collection, CollectionDetail, Family, FamilyChild } from '../../shared/types';
+import type { Collection, CollectionDetail, Family, FamilyChild, FamilyOutstanding } from '../../shared/types';
 import { api, errMsg } from '../lib/api';
 import { Modal, PrintHeader, Spinner, Toast, fmtDateTime, fmtMoney, printModal, todayIso } from '../components/shared';
 
@@ -11,6 +11,10 @@ export function CollectionsScreen() {
   const [familyId, setFamilyId] = useState(0);
   const [children, setChildren] = useState<FamilyChild[] | null>(null);
   const [studentId, setStudentId] = useState(0);
+  // '' = current school year (default); '*' = all years; otherwise a specific year.
+  const [payYear, setPayYear] = useState('');
+  const [outstanding, setOutstanding] = useState<FamilyOutstanding | null>(null);
+  const [schoolYear, setSchoolYear] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(todayIso());
   const [notes, setNotes] = useState('');
@@ -41,7 +45,13 @@ export function CollectionsScreen() {
   useEffect(() => {
     load();
     void api.listFamilies().then(setFamilies).catch(() => undefined);
+    void api.getPtaSettings().then((s) => setSchoolYear(s.school_year)).catch(() => undefined);
   }, [load]);
+
+  // Prior-year balances (everything except the current school year).
+  const priorYears = outstanding?.years.filter((y) => y.school_year !== schoolYear) ?? [];
+  const currentDue = outstanding?.years.find((y) => y.school_year === schoolYear)?.total_due ?? 0;
+  const priorDue = priorYears.reduce((s, y) => s + y.total_due, 0);
 
   const notify = (msg: string, tone: 'success' | 'error' = 'success') => {
     setToast(msg);
@@ -86,6 +96,7 @@ export function CollectionsScreen() {
         family_id: familyId,
         student_id: studentId || undefined,
         amount: amt,
+        pay_year: payYear || undefined,
         collected_at: date || undefined,
         notes: notes || undefined,
       });
@@ -139,14 +150,21 @@ export function CollectionsScreen() {
                 const fid = Number(e.target.value);
                 setFamilyId(fid);
                 setStudentId(0);
+                setPayYear('');
+                setAmount('');
                 setError(null);
                 if (fid) {
                   api
                     .getFamilyDetail(fid)
                     .then((d) => setChildren(d.children))
                     .catch(() => setChildren([]));
+                  api
+                    .familyOutstanding(fid)
+                    .then(setOutstanding)
+                    .catch(() => setOutstanding(null));
                 } else {
                   setChildren(null);
+                  setOutstanding(null);
                 }
               }}
             >
@@ -155,6 +173,7 @@ export function CollectionsScreen() {
                 <option key={f.id} value={f.id}>
                   {f.guardian_name}
                   {f.student_count > 1 ? ` (${f.student_count} children)` : ''}
+                  {` — ${fmtMoney(f.balance)}`}
                 </option>
               ))}
             </select>
@@ -170,6 +189,29 @@ export function CollectionsScreen() {
               placeholder="e.g. 650"
             />
           </div>
+          {familyId > 0 && outstanding && (
+            <div className="field field-full">
+              <div className="balance-strip">
+                <span className="text-dim">Outstanding balance:</span>
+                <strong className={outstanding.total_due > 0 ? 'neg strong' : 'pos strong'}>{fmtMoney(outstanding.total_due)}</strong>
+                {priorYears.length > 0 && (
+                  <span className="text-dim">· {fmtMoney(currentDue)} this year · {fmtMoney(priorDue)} prior years</span>
+                )}
+                {outstanding.total_due > 0 && (
+                  <button
+                    className="btn-ghost sm"
+                    onClick={() => {
+                      setPayYear('*');
+                      setAmount(String(outstanding.total_due));
+                    }}
+                  >
+                    Use full balance
+                  </button>
+                )}
+              </div>
+              <p className="field-hint">Parents may pay partial — enter any amount up to the balance above.</p>
+            </div>
+          )}
           {children !== null && (
             <div className="field field-full">
               <label>Child (optional)</label>
@@ -181,6 +223,19 @@ export function CollectionsScreen() {
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {priorYears.length > 0 && (
+            <div className="field field-full">
+              <label>Pay for school year</label>
+              <select value={payYear} onChange={(e) => { setPayYear(e.target.value); setError(null); }}>
+                <option value="">Current school year</option>
+                <option value="*">All years (oldest first)</option>
+                {priorYears.map((y) => (
+                  <option key={y.school_year} value={y.school_year}>SY {y.school_year} (has balance)</option>
+                ))}
+              </select>
+              <p className="field-hint">This family has prior-year balances. Pick a year to settle that balance, or choose "All years" to settle everything.</p>
             </div>
           )}
           <div className="field">
@@ -196,6 +251,8 @@ export function CollectionsScreen() {
         <p className="field-hint">
           The payment is auto-applied to the family's oldest unpaid charges (membership once per family, then per child) and distributed to funds by the configured rules.
           {studentId > 0 && ' When a specific child is selected, their charges are settled first.'}
+          {payYear === '*' && " The payment settles every year's balance, oldest first."}
+          {payYear && payYear !== '*' && ` The payment settles the SY ${payYear} balance only.`}
         </p>
         <div className="form-actions">
           <button className="btn-primary" onClick={() => void save()} disabled={saving}>

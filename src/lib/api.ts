@@ -21,6 +21,7 @@ import type {
   Family,
   FamilyBalanceRow,
   FamilyDetail,
+  FamilyOutstanding,
   FundAllocation,
   FeeComponent,
   FeeComponentInput,
@@ -42,6 +43,7 @@ import type {
   PtaUpdateStatus,
   PtaUser,
   PtaUserInput,
+  OutstandingYear,
   SchoolInfo,
   SectionCollectionRow,
   SectionFamilyRow,
@@ -283,6 +285,7 @@ class MockApi implements PtaApi {
         is_active: active.length > 0,
         created_at: existing?.created_at ?? nowIso(),
         balance: 0,
+        prior_balance: 0,
       });
     }
     this.families = next;
@@ -304,12 +307,41 @@ class MockApi implements PtaApi {
         (f) => f.guardian_name.toLowerCase().includes(q) || f.guardian_address.toLowerCase().includes(q) || this.childrenOf(f).some((c) => c.full_name.toLowerCase().includes(q)),
       );
     }
+    const currentYear = this.settings.school_year;
     return list
-      .map((f) => ({
-        ...f,
-        balance: round2(this.charges.filter((c) => c.family_id === f.id).reduce((s, c) => s + (c.amount - c.paid_amount), 0)),
-      }))
+      .map((f) => {
+        const mine = this.charges.filter((c) => c.family_id === f.id);
+        const balance = round2(mine.reduce((s, c) => s + (c.amount - c.paid_amount), 0));
+        const prior = round2(mine.filter((c) => c.school_year !== currentYear).reduce((s, c) => s + (c.amount - c.paid_amount), 0));
+        return { ...f, balance, prior_balance: prior };
+      })
       .sort((a, b) => a.guardian_name.localeCompare(b.guardian_name));
+  }
+
+  async familyOutstanding(familyId: number): Promise<FamilyOutstanding> {
+    this.requireUser();
+    const fam = this.families.find((f) => f.id === familyId);
+    if (!fam) throw new Error('Family not found.');
+    const mine = this.charges.filter((c) => c.family_id === familyId && c.paid_amount < c.amount);
+    const byYear = new Map<string, Charge[]>();
+    for (const c of mine) {
+      const arr = byYear.get(c.school_year) ?? [];
+      arr.push(c);
+      byYear.set(c.school_year, arr);
+    }
+    const years: OutstandingYear[] = [...byYear.entries()]
+      .map(([school_year, charges]) => ({
+        school_year,
+        total_due: round2(charges.reduce((s, c) => s + (c.amount - c.paid_amount), 0)),
+        charges,
+      }))
+      .sort((a, b) => (Number(String(a.school_year).slice(0, 4)) || 0) - (Number(String(b.school_year).slice(0, 4)) || 0));
+    return {
+      family_id: fam.id,
+      guardian_name: fam.guardian_name,
+      total_due: round2(years.reduce((s, y) => s + y.total_due, 0)),
+      years,
+    };
   }
 
   async getFamilyDetail(familyId: number): Promise<FamilyDetail> {
@@ -471,13 +503,21 @@ class MockApi implements PtaApi {
     const actor = actorOverride ?? this.actorName();
     const amount = round2(Number(input.amount));
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be greater than 0.');
-    const unpaid = this.charges.filter((c) => c.family_id === input.family_id && c.paid_amount < c.amount);
+    let unpaid = this.charges.filter((c) => c.family_id === input.family_id && c.paid_amount < c.amount);
+    if (input.pay_year === '*') {
+      // All years, oldest first.
+    } else {
+      const scopeYear = input.pay_year ?? this.settings.school_year;
+      unpaid = unpaid.filter((c) => c.school_year === scopeYear);
+    }
+    unpaid.sort((a, b) => (a.school_year < b.school_year ? -1 : a.school_year > b.school_year ? 1 : a.id - b.id));
     const totalUnpaid = round2(unpaid.reduce((s, c) => s + c.amount - c.paid_amount, 0));
-    if (totalUnpaid <= 0) throw new Error('This family has no outstanding charges.');
+    const scopeLabel = input.pay_year && input.pay_year !== '*' ? ` for ${input.pay_year}` : '';
+    if (totalUnpaid <= 0) throw new Error(`This family has no outstanding charges${scopeLabel}.`);
     if (amount > totalUnpaid + 0.001) throw new Error(`Payment exceeds the family's balance (${totalUnpaid.toFixed(2)}).`);
     // When a specific child is targeted, settle their charges first (FIFO), then spill over.
     if (input.student_id && !unpaid.some((c) => c.student_id === input.student_id)) {
-      throw new Error('Selected child has no outstanding charges for the school year.');
+      throw new Error(`Selected child has no outstanding charges${scopeLabel}.`);
     }
     const orderedUnpaid = input.student_id
       ? [...unpaid.filter((c) => c.student_id === input.student_id), ...unpaid.filter((c) => c.student_id !== input.student_id)]
@@ -933,9 +973,21 @@ class MockApi implements PtaApi {
       acc = round2(acc + l.debit - l.credit);
       l.balance = acc;
     }
+    const stYearStart = Number(String(schoolYear).slice(0, 4)) || 0;
+    const balanceForward = round2(
+      mine.filter((c) => (Number(String(c.school_year).slice(0, 4)) || 0) < stYearStart).reduce((s, c) => s + (c.amount - c.paid_amount), 0),
+    );
+    if (balanceForward > 0) {
+      lines.unshift({ id: -1, date: '', ref: 'BAL FWD', debit: balanceForward, credit: 0, description: 'Balance forward (prior school years)', balance: balanceForward });
+      let acc = 0;
+      for (const l of lines) {
+        acc = round2(acc + l.debit - l.credit);
+        l.balance = acc;
+      }
+    }
     const totalCharges = round2(mine.reduce((s, c) => s + c.amount, 0));
     const totalPaid = round2(pays.reduce((s, p) => s + p.credit, 0));
-    return { family: { ...fam }, school_year: schoolYear, lines, total_charges: totalCharges, total_paid: totalPaid, balance: round2(totalCharges - totalPaid) };
+    return { family: { ...fam }, school_year: schoolYear, lines, total_charges: totalCharges, total_paid: totalPaid, balance: round2(totalCharges - totalPaid), balance_forward: balanceForward };
   }
 
   // ---- demo seeding ----------------------------------------------------------------------------

@@ -9,6 +9,9 @@ import * as path from 'path';
 const CANDIDATES = [
   path.resolve(process.cwd(), '.env'),
   path.resolve(__dirname, '../../.env'),
+  // Installed (packaged) builds: a .env dropped next to the exe is picked up,
+  // so scripted rollouts can ship server config without the title-bar dialog.
+  path.resolve(path.dirname(process.execPath), '.env'),
 ];
 
 export function loadEnvFile(): void {

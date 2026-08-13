@@ -178,17 +178,25 @@ export async function createCollection(input: CollectionInput, actorName: string
       try {
         await conn.beginTransaction();
 
-        // Lock this family's unpaid charges (FIFO order). A concurrent cashier
-        // blocks here until this transaction commits, so the validation below
-        // and the relative paid_amount increments always see committed data.
+        // Lock this family's unpaid charges (FIFO order across years when the
+        // cashier chose 'all years'). A concurrent cashier blocks here until
+        // this transaction commits, so the validation below and the relative
+        // paid_amount increments always see committed data. pay_year narrows
+        // the scope: omitted → current year (default), '*' → every year
+        // (oldest first), anything else → that school year only.
+        // pay_year narrows the scope: omitted → current year (default),
+        // '*' → every year (oldest first), anything else → that year only.
+        // In every case the rows are locked FOR UPDATE and ordered oldest first.
+        const payYear = input.pay_year === '*' ? undefined : input.pay_year;
         const unpaid = (await conn.query(
-          `SELECT id, student_id, component_id, term, amount, paid_amount
-           FROM pta_charges WHERE family_id = ? AND school_year = ? AND paid_amount < amount
-           ORDER BY created_at, id FOR UPDATE`,
-          [familyId, year],
+          `SELECT c.id, c.student_id, c.component_id, c.term, c.amount, c.paid_amount
+           FROM pta_charges c WHERE c.family_id = ? AND c.paid_amount < c.amount AND c.school_year = ?
+           ORDER BY c.school_year, c.created_at, c.id FOR UPDATE`,
+          [familyId, payYear ?? year],
         ))[0] as unknown as Charge[];
+        const scopeLabel = payYear ? ` for ${payYear}` : input.pay_year === '*' ? '' : ' for the school year';
         const totalUnpaid = unpaid.reduce((s, c) => s + (Number(c.amount) - Number(c.paid_amount)), 0);
-        if (totalUnpaid <= 0) throw new Error('This family has no outstanding charges for the school year.');
+        if (totalUnpaid <= 0) throw new Error(`This family has no outstanding charges${scopeLabel}.`);
         if (amount > totalUnpaid + 0.001) {
           throw new Error(`Payment exceeds the family's balance (${totalUnpaid.toFixed(2)}).`);
         }
@@ -201,7 +209,7 @@ export async function createCollection(input: CollectionInput, actorName: string
             ]
           : unpaid;
         if (studentId && !unpaid.some((c) => c.student_id === studentId)) {
-          throw new Error('Selected child has no outstanding charges for the school year.');
+          throw new Error(`Selected child has no outstanding charges${scopeLabel}.`);
         }
 
         // Apply the payment across charges (FIFO).

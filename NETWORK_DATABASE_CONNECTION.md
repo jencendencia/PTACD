@@ -19,7 +19,7 @@ The app figures out which server to talk to by layering three sources. The
 |----------|--------|----------------|---------|
 | 1 | Saved connection (set from the title bar) | `userData/db-config.json` (per machine) | `192.168.1.129 / 3306 / pta / …` |
 | 2 | OS environment variables | Real env vars | `DB_HOST=192.168.1.129` |
-| 2 | `.env` file | `.env` next to `package.json` (gitignored) | `DB_HOST=192.168.1.129` |
+| 2 | `.env` file | Dev: project root; **installed app: next to the exe** (gitignored) | `DB_HOST=192.168.1.129` |
 | 3 | Built-in defaults | `electron/db/connection.ts` | `127.0.0.1 / 3306 / root / tapin_school` |
 
 Notes:
@@ -111,14 +111,25 @@ Do this once on the computer that hosts the `tapin_school` database.
 2. **Allow the port through the firewall** — open **inbound TCP 3306** for the
    LAN network profile (Windows Firewall → Advanced settings → Inbound rules).
 3. **Create a dedicated database user** (never expose `root` over the network;
-   `root@localhost` stays local-only):
+   `root@localhost` stays local-only). Easiest: double-click
+   **`scripts/grant-mysql-access.bat`** on the server and enter the root
+   password — no typing of commands needed. Or run the bundled SQL script
+   (`mysql -u root -p < scripts/grant-mysql-access.sql`) or run the SQL by
+   hand:
    ```sql
    CREATE USER 'pta'@'%' IDENTIFIED BY 'a-strong-password';
-   GRANT ALL PRIVILEGES ON tapin_school.* TO 'pta'@'%';
+   GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES
+     ON tapin_school.* TO 'pta'@'%';
    FLUSH PRIVILEGES;
    ```
-   The `ALL` grant includes `CREATE`, which the app needs to self-create its
-   `pta_*` tables on first connect.
+   **Why `'%'` — the “automatic grant” answer:** MySQL accounts are `user@host`
+   pairs, so `'pta'@'%'` matches **any** host. Every freshly installed PTA CD
+   machine is automatically covered — no per-computer grant is ever needed.
+   For tighter security, scope it to the LAN subnet instead (e.g.
+   `'pta'@'192.168.1.%'`) — still zero per-machine steps, but only computers on
+   that subnet can authenticate. The `CREATE`/`ALTER` privileges are required
+   because the app self-creates and migrates its `pta_*` tables on first
+   connect.
 4. **Note the server's LAN IP** — run `ipconfig`, copy the **IPv4 Address**
    (e.g. `192.168.1.129`). This is the `DB_HOST` every client will use.
 
@@ -137,9 +148,11 @@ Each machine connects to the same server — no local MySQL required.
 Install/run the app, click the database pill, enter Host / Port / User /
 Password / Database from §5 and connect. The setting is remembered.
 
-**Option B — via `.env` (developers / scripted setups):**
+**Option B — via `.env` (scripted / mass rollouts):**
 
-Create a `.env` next to `package.json` (a template lives in `.env.example`):
+Create a `.env` (template: `.env.example`) — **next to `package.json` in dev,
+or next to the installed `PTA CD.exe` on end-user machines** (the loader checks
+both places):
 
 ```env
 DB_HOST=192.168.1.129
@@ -149,8 +162,10 @@ DB_PASSWORD=a-strong-password
 DB_NAME=tapin_school
 ```
 
-Then `npm run dev` (or the installed app). First connect self-creates the
-`pta_*` tables and seeds the default `admin / admin` account.
+Then `npm run dev` (or launch the installed app). First connect self-creates
+the `pta_*` tables and seeds the default `admin / admin` account. This lets a
+rollout push one `.env` alongside the installer so every machine is pre-wired
+— no title-bar dialog, no per-machine typing.
 
 ---
 

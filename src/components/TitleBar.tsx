@@ -3,9 +3,9 @@
 // call the win:* IPC bridge exposed by the preload; in browser mock mode
 // (no Electron) the window controls are hidden and only the brand is shown.
 import { useEffect, useState } from 'react';
-import { api, errMsg, isElectron } from '../lib/api';
-import type { PtaDbConfig, PtaDbStatus, PtaSettings, PtaWindowControls, SchoolInfo } from '../../shared/types';
-import { Modal } from './shared';
+import { api, isElectron } from '../lib/api';
+import type { PtaDbStatus, PtaSettings, PtaWindowControls, SchoolInfo } from '../../shared/types';
+import { DbConnectModal } from './DbConnectModal';
 
 const getControls = (): PtaWindowControls | undefined =>
   (window as unknown as { winControls?: PtaWindowControls }).winControls;
@@ -57,13 +57,6 @@ export function TitleBar({
   const [maximized, setMaximized] = useState(false);
   const [db, setDb] = useState<PtaDbStatus | null>(null);
   const [showDbModal, setShowDbModal] = useState(false);
-  const [dbHost, setDbHost] = useState('127.0.0.1');
-  const [dbPort, setDbPort] = useState('3306');
-  const [dbUser, setDbUser] = useState('root');
-  const [dbPassword, setDbPassword] = useState('');
-  const [dbDatabase, setDbDatabase] = useState('tapin_school');
-  const [connecting, setConnecting] = useState(false);
-  const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -89,43 +82,7 @@ export function TitleBar({
       : `${db.host}:${db.port} · offline`
     : 'database …';
 
-  const openDbModal = () => {
-    setDbHost(db?.host ?? '127.0.0.1');
-    setDbPort(String(db?.port ?? 3306));
-    setDbUser(db?.user ?? 'root');
-    setDbPassword('');
-    setDbDatabase(db?.database ?? 'tapin_school');
-    setDbError(null);
-    setShowDbModal(true);
-  };
-
-  const connectDb = async () => {
-    const config: PtaDbConfig = {
-      host: dbHost.trim(),
-      port: Number(dbPort) || 3306,
-      user: dbUser.trim(),
-      password: dbPassword,
-      database: dbDatabase.trim(),
-    };
-    setConnecting(true);
-    setDbError(null);
-    try {
-      const status = await api.connectDb(config);
-      setDb(status);
-      if (status.online) {
-        setShowDbModal(false);
-        // The backend server may have changed — reload so every screen
-        // remounts against the new database. The session is restored via api.me().
-        window.location.reload();
-      } else {
-        setDbError(status.detail);
-      }
-    } catch (err) {
-      setDbError(errMsg(err));
-    } finally {
-      setConnecting(false);
-    }
-  };
+  const openDbModal = () => setShowDbModal(true);
 
   return (
     <header className="titlebar">
@@ -156,46 +113,7 @@ export function TitleBar({
           <span className="titlebar-db-text">{dbText}</span>
         </button>
       </div>
-      {showDbModal && (
-        <Modal title="Connect to database" onClose={() => { if (!connecting) setShowDbModal(false); }}>
-          <div className="form">
-            <p className="field-hint db-modal-hint">
-              Point the app at the MySQL server that holds the shared school database. The config is saved for next launch.
-            </p>
-            <div className="grid-2">
-              <div className="field">
-                <label>Host</label>
-                <input value={dbHost} onChange={(e) => setDbHost(e.target.value)} placeholder="e.g. 192.168.1.129" autoFocus />
-              </div>
-              <div className="field">
-                <label>Port</label>
-                <input value={dbPort} onChange={(e) => setDbPort(e.target.value)} inputMode="numeric" placeholder="3306" />
-              </div>
-            </div>
-            <div className="grid-2">
-              <div className="field">
-                <label>User</label>
-                <input value={dbUser} onChange={(e) => setDbUser(e.target.value)} placeholder="root" />
-              </div>
-              <div className="field">
-                <label>Password</label>
-                <input type="password" value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} placeholder="••••••••" />
-              </div>
-            </div>
-            <div className="field">
-              <label>Database</label>
-              <input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} placeholder="tapin_school" />
-            </div>
-            {dbError && <p className="field-hint sms-error">{dbError}</p>}
-            <div className="form-actions">
-              <button className="btn-ghost" onClick={() => setShowDbModal(false)} disabled={connecting}>Cancel</button>
-              <button className="btn-primary" onClick={() => void connectDb()} disabled={connecting}>
-                {connecting ? 'Connecting…' : 'Connect'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {showDbModal && <DbConnectModal onClose={() => setShowDbModal(false)} />}
 
       {controls && (
         <div className="titlebar-controls">

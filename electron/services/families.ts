@@ -3,7 +3,8 @@
 // Students without a guardian on file become their own single-child family.
 import { db } from '../db/connection';
 import { get } from '../db/settings';
-import type { Family, FamilyChild, FamilyDetail } from '../../shared/types';
+import { toCharge } from './charges';
+import type { Charge, Family, FamilyChild, FamilyDetail, FamilyOutstanding, OutstandingYear } from '../../shared/types';
 
 /** Deterministic family key for a student row. */
 export function familyKeyOf(guardianName: string, guardianAddress: string, studentNo: string): string {
@@ -33,6 +34,7 @@ type FamilyRow = {
   is_active: number;
   created_at: string;
   balance: number;
+  prior_balance: number;
 };
 
 const toFamily = (r: FamilyRow): Family => ({
@@ -44,6 +46,7 @@ const toFamily = (r: FamilyRow): Family => ({
   is_active: !!r.is_active,
   created_at: r.created_at,
   balance: Number(r.balance ?? 0),
+  prior_balance: Number(r.prior_balance ?? 0),
 });
 
 /** Rebuilds pta_families from the students table. Idempotent; returns count. */
@@ -133,11 +136,71 @@ export async function listFamilies(search?: string): Promise<Family[]> {
   const rows = await db.query<FamilyRow[]>(
     `SELECT f.*,
        COALESCE((SELECT SUM(c.amount - c.paid_amount) FROM pta_charges c
-                 WHERE c.family_id = f.id AND c.school_year = ?), 0) AS balance
+                 WHERE c.family_id = f.id AND c.school_year = ?), 0) AS balance,
+       COALESCE((SELECT SUM(c.amount - c.paid_amount) FROM pta_charges c
+                 WHERE c.family_id = f.id AND c.school_year <> ?), 0) AS prior_balance
      FROM pta_families f ${where} ORDER BY f.guardian_name`,
-    params,
+    [year, ...params],
   );
   return rows.map(toFamily);
+}
+
+/** Outstanding unpaid charges per school year for a family (oldest year first). */
+export async function outstandingByYear(familyId: number): Promise<FamilyOutstanding> {
+  const [fam] = await db.query<{ id: number; guardian_name: string }[]>(
+    'SELECT id, guardian_name FROM pta_families WHERE id = ?',
+    [familyId],
+  );
+  if (!fam) throw new Error('Family not found.');
+
+  const rows = await db.query<
+    {
+      id: number;
+      family_id: number;
+      student_id: number;
+      student_name: string;
+      grade_section: string;
+      school_year: string;
+      component_id: number;
+      component_code: string;
+      component_label: string;
+      term: string;
+      amount: number;
+      paid_amount: number;
+    }[]
+  >(
+    `SELECT c.id, c.family_id, c.student_id, s.full_name AS student_name, s.grade_section,
+            c.school_year, c.component_id, f.code AS component_code, f.label AS component_label,
+            c.term, c.amount, c.paid_amount
+     FROM pta_charges c
+     JOIN students s ON s.id = c.student_id
+     JOIN pta_fee_components f ON f.id = c.component_id
+     WHERE c.family_id = ? AND c.paid_amount < c.amount
+     ORDER BY c.school_year, c.created_at, c.id`,
+    [familyId],
+  );
+
+  const byYear = new Map<string, Charge[]>();
+  for (const r of rows) {
+    const y = r.school_year;
+    const arr = byYear.get(y) ?? [];
+    arr.push(toCharge(r));
+    byYear.set(y, arr);
+  }
+  const years: OutstandingYear[] = [...byYear.entries()]
+    .map(([school_year, charges]) => ({
+      school_year,
+      total_due: Math.round(charges.reduce((s, c) => s + (Number(c.amount) - Number(c.paid_amount)), 0) * 100) / 100,
+      charges,
+    }))
+    .sort((a, b) => (Number(String(a.school_year).slice(0, 4)) || 0) - (Number(String(b.school_year).slice(0, 4)) || 0));
+
+  return {
+    family_id: fam.id,
+    guardian_name: fam.guardian_name,
+    total_due: Math.round(years.reduce((s, y) => s + y.total_due, 0) * 100) / 100,
+    years,
+  };
 }
 
 export async function getFamilyDetail(familyId: number): Promise<FamilyDetail> {

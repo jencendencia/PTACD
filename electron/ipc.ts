@@ -28,7 +28,7 @@ import {
   setUserPhoto,
   updateUser,
 } from './services/auth';
-import { getFamilyDetail, listFamilies, syncFamilies } from './services/families';
+import { getFamilyDetail, listFamilies, outstandingByYear, syncFamilies } from './services/families';
 import { withJobLock } from './services/job-lock';
 import { listCharges, recomputeCharges } from './services/charges';
 import { deleteFund, listFunds, saveFund } from './services/funds';
@@ -87,6 +87,7 @@ import type {
   Family,
   FamilyBalanceRow,
   FamilyDetail,
+  FamilyOutstanding,
   FeeComponent,
   FeeComponentInput,
   Fund,
@@ -263,6 +264,10 @@ export function registerIpc(): void {
   ipcMain.handle('pta:familyDetail', async (_e, familyId: number): Promise<FamilyDetail> => {
     requireUser();
     return getFamilyDetail(familyId);
+  });
+  ipcMain.handle('pta:familyOutstanding', async (_e, familyId: number): Promise<FamilyOutstanding> => {
+    requireUser();
+    return outstandingByYear(familyId);
   });
 
   // ---- Fee components ---------------------------------------------------------

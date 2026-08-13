@@ -191,7 +191,7 @@ export async function collectionsReport(from?: string, to?: string): Promise<Col
 
 export async function statementOfAccount(familyId: number, schoolYear: string): Promise<StatementOfAccount> {
   const [fam] = await db.query<Family[]>(
-    'SELECT id, guardian_name, guardian_address, parent_phone, student_count, is_active, created_at FROM pta_families WHERE id = ?',
+    'SELECT id, guardian_name, guardian_address, parent_phone, student_count, is_active, created_at, balance, prior_balance FROM pta_families WHERE id = ?',
     [familyId],
   );
   if (!fam) throw new Error('Family not found.');
@@ -241,8 +241,32 @@ export async function statementOfAccount(familyId: number, schoolYear: string): 
       balance: running,
     });
   }
+  // Balance carried in from school years earlier than the statement year.
+  const stYearStart = Number(String(schoolYear).slice(0, 4)) || 0;
+  const priorRows = await db.query<{ school_year: string; due: number }[]>(
+    `SELECT c.school_year, SUM(c.amount - c.paid_amount) AS due
+     FROM pta_charges c WHERE c.family_id = ? GROUP BY c.school_year`,
+    [familyId],
+  );
+  const balanceForward = Math.round(
+    priorRows
+      .filter((r) => (Number(String(r.school_year).slice(0, 4)) || 0) < stYearStart)
+      .reduce((s, r) => s + Number(r.due ?? 0), 0) * 100,
+  ) / 100;
+  if (balanceForward > 0) {
+    lines.unshift({
+      id: 0,
+      date: '',
+      ref: 'BAL FWD',
+      description: 'Balance forward (prior school years)',
+      debit: balanceForward,
+      credit: 0,
+      balance: balanceForward,
+    });
+  }
+
   lines.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.ref === 'CHARGE' ? -1 : 1));
-  // Recompute running balance after the date sort.
+  // Recompute running balance after the date sort (includes balance forward).
   let acc = 0;
   for (const l of lines) {
     acc = Math.round((acc + l.debit - l.credit) * 100) / 100;
@@ -258,6 +282,7 @@ export async function statementOfAccount(familyId: number, schoolYear: string): 
     total_charges: Math.round(totalCharges * 100) / 100,
     total_paid: Math.round(totalPaid * 100) / 100,
     balance: Math.round((totalCharges - totalPaid) * 100) / 100,
+    balance_forward: balanceForward,
   };
 }
 

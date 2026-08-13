@@ -19,6 +19,7 @@ import type {
   Family,
   FamilyBalanceRow,
   FamilyDetail,
+  FamilyOutstanding,
   FeeComponent,
   FeeComponentInput,
   Fund,
@@ -74,6 +75,8 @@ const api: PtaApi = {
   listFamilies: (search?: string) => ipcRenderer.invoke('pta:listFamilies', search) as Promise<Family[]>,
   getFamilyDetail: (familyId: number) =>
     ipcRenderer.invoke('pta:familyDetail', familyId) as Promise<FamilyDetail>,
+  familyOutstanding: (familyId: number) =>
+    ipcRenderer.invoke('pta:familyOutstanding', familyId) as Promise<FamilyOutstanding>,
 
   listFeeComponents: () => ipcRenderer.invoke('pta:listComponents') as Promise<FeeComponent[]>,
   saveFeeComponent: (input: FeeComponentInput) =>

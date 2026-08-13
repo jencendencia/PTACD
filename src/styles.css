@@ -32,6 +32,37 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---- Modern scrollbars (app-wide) ----------------------------------------
+   Thin rounded pill thumbs that float over a transparent track, in the app's
+   dark theme. Chromium (Electron) renders the ::-webkit-scrollbar rules;
+   scrollbar-width/color are the Firefox equivalents for the browser mock. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #31456e, #22304f);
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #3d5380, #2a3a5f);
+}
+::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, var(--emerald), #059669);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+
 .text-dim { color: var(--text-dim); }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .num { text-align: right; }
@@ -113,7 +144,86 @@ body {
 .form-card { max-width: 760px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .field-full { grid-column: 1 / -1; }
-.pct-input { width: 76px; text-align: right; }
+.pct-input {
+  width: 78px;
+  text-align: right;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: var(--font);
+  color: var(--text);
+  caret-color: var(--emerald);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.pct-input:hover { border-color: var(--border-strong); }
+.pct-input:focus {
+  border-color: var(--emerald);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15), 0 0 12px rgba(16, 185, 129, 0.12);
+  background: var(--surface-2);
+}
+.pct-input::placeholder { color: var(--text-faint); font-weight: 400; }
+
+/* ---- Family balance drill-down ---- */
+.balance-link {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: right;
+  padding: 5px 8px;
+  border-radius: 8px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  transition: background 0.15s ease;
+}
+.balance-link:hover { background: var(--surface-2); }
+.balance-link:focus-visible { outline: 2px solid var(--emerald); outline-offset: 1px; }
+.prior-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--amber);
+  background: rgba(245, 158, 11, 0.12);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.oyear {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px 12px;
+  margin-bottom: 10px;
+  background: linear-gradient(180deg, var(--surface), rgba(15, 28, 51, 0.4));
+}
+.oyear-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+}
+.oyear .table { margin-top: 0; }
+.balance-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+}
+.balance-strip .neg, .balance-strip .pos { font-size: 15px; }
+
+/* Hide the dated native number spinners; the stepper look is the old part. */
+.pct-input::-webkit-inner-spin-button,
+.pct-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.pct-input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
 
 /* ---- Custom title bar (frameless window) ---- */
 .pta-frame { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
@@ -462,6 +572,37 @@ body {
 .login-card .form { text-align: left; }
 .login-btn { width: 100%; margin-top: 10px; }
 .login-hint { margin-top: 18px !important; font-size: 12px !important; }
+.login-db-banner { margin-bottom: 22px; }
+.login-db-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.05));
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.login-db-btn:hover {
+  border-color: var(--amber);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.08));
+}
+.login-db-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.login-db-icon { font-size: 18px; }
+.login-db-text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.login-db-text strong { font-size: 13.5px; color: var(--amber); }
+.login-db-text .text-dim { font-size: 12px; }
+.login-db-cta {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--amber);
+  white-space: nowrap;
+}
 
 /* ---- Activation (license screen, shown before login) ---- */
 .machine-id {

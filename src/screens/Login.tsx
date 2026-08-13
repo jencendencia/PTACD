@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { PtaUser, SchoolInfo } from '../../shared/types';
+import type { PtaDbStatus, PtaUser, SchoolInfo } from '../../shared/types';
 import { api, errMsg } from '../lib/api';
+import { DbConnectModal } from '../components/DbConnectModal';
 
 export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
   const [school, setSchool] = useState<SchoolInfo | null>(null);
+  const [db, setDb] = useState<PtaDbStatus | null>(null);
+  const [showDbModal, setShowDbModal] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -11,6 +14,13 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
 
   useEffect(() => {
     void api.getSchoolInfo().then(setSchool).catch(() => undefined);
+    // Live server status: a fresh install starts offline until the shared
+    // MySQL server is configured, so surface a prominent connect prompt.
+    api
+      .getDbStatus()
+      .then(setDb)
+      .catch(() => undefined);
+    return api.onDbStatusChange(setDb);
   }, []);
 
   const submit = async () => {
@@ -34,6 +44,18 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
   return (
     <div className="login-screen">
       <div className="login-card">
+        {db && !db.online && (
+          <div className="login-db-banner">
+            <button type="button" className="login-db-btn" onClick={() => setShowDbModal(true)}>
+              <span className="login-db-icon" aria-hidden="true">⚠️</span>
+              <span className="login-db-text">
+                <strong>Not connected to the database server</strong>
+                <span className="text-dim">{db.detail} — click to configure the server, then sign in.</span>
+              </span>
+              <span className="login-db-cta">Connect server →</span>
+            </button>
+          </div>
+        )}
         {school?.logo_url ? (
           <img className="login-logo-img" src={school.logo_url} alt="School logo" />
         ) : (
@@ -65,6 +87,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: PtaUser) => void }) {
           Demo accounts: admin/admin · president/president · treasurer/treasurer
         </p>
       </div>
+      {showDbModal && <DbConnectModal onClose={() => setShowDbModal(false)} />}
     </div>
   );
 }
