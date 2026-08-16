@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Collection, CollectionDetail, Family, FamilyChild, FamilyOutstanding } from '../../shared/types';
 import { api, errMsg } from '../lib/api';
-import { Modal, PrintHeader, Spinner, Toast, fmtDateTime, fmtMoney, printModal, todayIso } from '../components/shared';
+import { Modal, PrintHeader, SearchSelect, Spinner, Toast, fmtDateTime, fmtMoney, printModal, todayIso } from '../components/shared';
 
 export function CollectionsScreen() {
   const [rows, setRows] = useState<Collection[] | null>(null);
@@ -57,6 +57,27 @@ export function CollectionsScreen() {
     setToast(msg);
     setToastTone(tone);
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const onFamilySelect = (fid: number) => {
+    setFamilyId(fid);
+    setStudentId(0);
+    setPayYear('');
+    setAmount('');
+    setError(null);
+    if (fid) {
+      api
+        .getFamilyDetail(fid)
+        .then((d) => setChildren(d.children))
+        .catch(() => setChildren([]));
+      api
+        .familyOutstanding(fid)
+        .then(setOutstanding)
+        .catch(() => setOutstanding(null));
+    } else {
+      setChildren(null);
+      setOutstanding(null);
+    }
   };
 
   const openDetail = async (r: Collection) => {
@@ -144,39 +165,17 @@ export function CollectionsScreen() {
         <div className="grid-2">
           <div className="field">
             <label>Family (guardian)</label>
-            <select
-              value={familyId}
-              onChange={(e) => {
-                const fid = Number(e.target.value);
-                setFamilyId(fid);
-                setStudentId(0);
-                setPayYear('');
-                setAmount('');
-                setError(null);
-                if (fid) {
-                  api
-                    .getFamilyDetail(fid)
-                    .then((d) => setChildren(d.children))
-                    .catch(() => setChildren([]));
-                  api
-                    .familyOutstanding(fid)
-                    .then(setOutstanding)
-                    .catch(() => setOutstanding(null));
-                } else {
-                  setChildren(null);
-                  setOutstanding(null);
-                }
-              }}
-            >
-              <option value={0}>— Select family —</option>
-              {families.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.guardian_name}
-                  {f.student_count > 1 ? ` (${f.student_count} children)` : ''}
-                  {` — ${fmtMoney(f.balance)}`}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={familyId || null}
+              onSelect={(v) => onFamilySelect(v ?? 0)}
+              options={families.map((f) => ({
+                value: f.id,
+                label: `${f.guardian_name}${f.student_count > 1 ? ` (${f.student_count} children)` : ''} — ${fmtMoney(f.balance)}`,
+                searchText: f.guardian_address,
+              }))}
+              placeholder="Type to search guardian or address…"
+              emptyText="No family matches your search"
+            />
           </div>
           <div className="field">
             <label>Amount (₱)</label>
@@ -322,6 +321,7 @@ export function CollectionsScreen() {
               <h3 className="print-doc-title">Official Receipt {detail.or_no}</h3>
               <p className="receipt-line"><span>Family</span><strong>{detail.guardian_name}</strong></p>
               <p className="receipt-line"><span>Amount</span><strong>{fmtMoney(detail.amount)}</strong></p>
+              <p className="receipt-line"><span>Balance after payment</span><strong className={detail.family_balance > 0 ? 'neg' : 'pos'}>{fmtMoney(detail.family_balance)}</strong></p>
               <p className="receipt-line"><span>Date</span><span>{fmtDateTime(detail.collected_at)}</span></p>
               <p className="receipt-line"><span>Collected by</span><span>{detail.collector}</span></p>
               <h4>Applied to charges</h4>

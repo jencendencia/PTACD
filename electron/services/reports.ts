@@ -191,8 +191,13 @@ export async function collectionsReport(from?: string, to?: string): Promise<Col
 
 export async function statementOfAccount(familyId: number, schoolYear: string): Promise<StatementOfAccount> {
   const [fam] = await db.query<Family[]>(
-    'SELECT id, guardian_name, guardian_address, parent_phone, student_count, is_active, created_at, balance, prior_balance FROM pta_families WHERE id = ?',
-    [familyId],
+    `SELECT id, guardian_name, guardian_address, parent_phone, student_count, is_active, created_at,
+       COALESCE((SELECT SUM(c.amount - c.paid_amount) FROM pta_charges c
+                 WHERE c.family_id = pta_families.id AND c.school_year = ?), 0) AS balance,
+       COALESCE((SELECT SUM(c.amount - c.paid_amount) FROM pta_charges c
+                 WHERE c.family_id = pta_families.id AND c.school_year <> ?), 0) AS prior_balance
+     FROM pta_families WHERE id = ?`,
+    [schoolYear, schoolYear, familyId],
   );
   if (!fam) throw new Error('Family not found.');
 

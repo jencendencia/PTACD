@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import type { AdvanceStatus, DisbursementStatus, PtaUser, SchoolInfo } from '../../shared/types';
 import { api } from '../lib/api';
 
@@ -39,6 +39,130 @@ export function Spinner({ label }: { label?: string }) {
 
 export function Toast({ message, tone = 'success' }: { message: string; tone?: 'success' | 'error' }) {
   return <div className={`toast ${tone === 'success' ? 'toast-success' : 'toast-error'}`}>{message}</div>;
+}
+
+/** Combobox: type-to-search over `options`, arrow keys + Enter to pick,
+ *  Escape / click-outside to close. `value` of null = nothing selected.
+ *  Matching is case-insensitive over the option label (+ optional searchText). */
+export function SearchSelect<T extends string | number>({
+  value,
+  onSelect,
+  options,
+  placeholder = 'Type to search…',
+  emptyText = 'No matches',
+}: {
+  value: T | null;
+  onSelect: (value: T | null) => void;
+  options: { value: T; label: string; searchText?: string }[];
+  placeholder?: string;
+  emptyText?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [highlight, setHighlight] = useState(0);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const selected = options.find((o) => o.value === value);
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter((o) => `${o.label} ${o.searchText ?? ''}`.toLowerCase().includes(q))
+    : options;
+
+  // Close when clicking outside the combobox.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  // Keep the highlighted row visible while the list scrolls.
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const el = listRef.current.querySelector<HTMLElement>('[data-hl="1"]');
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [highlight, open]);
+
+  const choose = (o: { value: T; label: string }) => {
+    onSelect(o.value);
+    setQuery('');
+    setOpen(false);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+      e.preventDefault();
+      setOpen(true);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight((h) => Math.min(h + 1, Math.max(0, filtered.length - 1)));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered[highlight]) choose(filtered[highlight]);
+      else setOpen(false);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+    }
+  };
+
+  const shown = open ? query : (selected?.label ?? '');
+
+  return (
+    <div className="search-select" ref={rootRef}>
+      <input
+        className="search-select-input"
+        value={shown}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => {
+          setQuery('');
+          setOpen(true);
+        }}
+        onKeyDown={onKeyDown}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+      />
+      {selected ? (
+        <button className="search-select-clear" type="button" title="Clear selection" onClick={() => { onSelect(null); setQuery(''); setOpen(false); }}>
+          ✕
+        </button>
+      ) : (
+        <span className="search-select-caret">▾</span>
+      )}
+      {open && (
+        <div className="search-select-list" ref={listRef}>
+          {filtered.length === 0 ? (
+            <div className="search-select-empty">{emptyText}</div>
+          ) : (
+            filtered.map((o, i) => (
+              <button
+                key={String(o.value)}
+                type="button"
+                className={`search-select-option${i === highlight ? ' hl' : ''}`}
+                data-hl={i === highlight ? '1' : '0'}
+                onMouseEnter={() => setHighlight(i)}
+                onClick={() => choose(o)}
+              >
+                {o.label}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Round avatar: the profile photo when set, otherwise the user's initial. */

@@ -404,13 +404,20 @@ function VoucherModal({ d, onClose }: { d: Disbursement; onClose: () => void }) 
           <div className="signatory">
             <div className="signatory-line" />
             <div className="signatory-name">{d.created_by || '—'}</div>
-            <div className="signatory-role">Prepared by</div>
+            <div className="signatory-role">Prepared by{d.created_by_role ? ` · ${PTA_ROLE_LABELS[d.created_by_role]}` : ''}</div>
           </div>
           <div className="signatory">
             <div className="signatory-line" />
             <div className="signatory-name">{d.approved_by || '—'}</div>
-            <div className="signatory-role">Approved by</div>
+            <div className="signatory-role">Approved by{d.approved_by_role ? ` · ${PTA_ROLE_LABELS[d.approved_by_role]}` : ''}</div>
           </div>
+          {d.paid_by && (
+            <div className="signatory">
+              <div className="signatory-line" />
+              <div className="signatory-name">{d.paid_by}</div>
+              <div className="signatory-role">Paid by{d.paid_by_role ? ` · ${PTA_ROLE_LABELS[d.paid_by_role]}` : ''}</div>
+            </div>
+          )}
           <div className="signatory">
             <div className="signatory-line" />
             <div className="signatory-name">{d.received_by || '—'}</div>

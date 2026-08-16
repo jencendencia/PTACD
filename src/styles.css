@@ -134,6 +134,78 @@ body {
   border-color: var(--emerald);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
 }
+
+/* ---- Combobox (search dropdown) ---- */
+.search-select { position: relative; }
+.search-select-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 9px 30px 9px 13px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.search-select-input:focus {
+  border-color: var(--emerald);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}
+.search-select-caret {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.search-select-clear {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.search-select-clear:hover { color: var(--text); background: var(--surface-2); }
+.search-select-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 340px;
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 60;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+}
+.search-select-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13.5px;
+  font-family: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.search-select-option:hover, .search-select-option.hl { background: var(--surface); color: var(--emerald); }
+.search-select-empty { padding: 10px 12px; font-size: 13px; color: var(--text-faint); }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field label { font-size: 13px; font-weight: 650; color: var(--text-dim); }
@@ -497,6 +569,16 @@ body {
 .pill-warn { background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
 .pill-info { background: var(--indigo-soft); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.35); }
 .pill-dim { background: rgba(148, 163, 184, 0.12); color: var(--text-dim); border: 1px solid var(--border); }
+/* Pills rendered as <button> (e.g. clickable attachment chips): strip button
+   chrome and make the whole chip an obvious link. */
+button.pill-link {
+  appearance: none;
+  background: none;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  font-family: inherit;
+  cursor: pointer;
+}
+button.pill-link:hover { background: var(--indigo-soft); border-color: #6366f1; color: #c7d2fe; }
 
 /* ---- Modal ---- */
 .modal-overlay {

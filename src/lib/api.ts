@@ -163,6 +163,12 @@ class MockApi implements PtaApi {
     return u.full_name || u.username;
   }
 
+  /** PTA role of a stored signatory name (matched like the SQL joins: full_name or username). */
+  private roleOf(name: string | null | undefined): PtaRole | null {
+    if (!name) return null;
+    return this.users.find((x) => x.full_name === name || x.username === name)?.role ?? null;
+  }
+
   // ---- db status ---------------------------------------------------------------
   private dbConfig: PtaDbConfig = { host: '127.0.0.1', port: 3306, user: 'root', database: 'tapin_school' };
 
@@ -560,7 +566,12 @@ class MockApi implements PtaApi {
       }
       remaining = round2(remaining - take);
     }
-    return { ...collection, breakdown, allocations: this.allocationsOf(collection.id) };
+    return {
+      ...collection,
+      breakdown,
+      allocations: this.allocationsOf(collection.id),
+      family_balance: round2(this.charges.filter((c) => c.family_id === collection.family_id).reduce((s, c) => s + (c.amount - c.paid_amount), 0)),
+    };
   }
 
   /** Fund distribution summarized per fund (one row per fund), matching the SQL's GROUP BY. */
@@ -589,7 +600,12 @@ class MockApi implements PtaApi {
           amount: p.amount,
         };
       });
-    return { ...col, breakdown, allocations: this.allocationsOf(id) };
+    return {
+      ...col,
+      breakdown,
+      allocations: this.allocationsOf(id),
+      family_balance: round2(this.charges.filter((c) => c.family_id === col.family_id).reduce((s, c) => s + (c.amount - c.paid_amount), 0)),
+    };
   }
 
   private nextNo(prefix: string): string {
@@ -649,6 +665,9 @@ class MockApi implements PtaApi {
       reference_no: '',
       notes: input.notes ?? '',
       created_at: nowIso(),
+      created_by_role: this.roleOf(actor),
+      approved_by_role: null,
+      paid_by_role: null,
     };
     this.disbursements.push(d);
     return d;
@@ -661,6 +680,7 @@ class MockApi implements PtaApi {
     d.status = 'APPROVED';
     d.approved_by = this.actorName();
     d.approved_at = nowIso();
+    d.approved_by_role = this.roleOf(d.approved_by);
     return d;
   }
   async payDisbursement(id: number, referenceNo: string, receivedBy: string): Promise<Disbursement> {
@@ -671,6 +691,7 @@ class MockApi implements PtaApi {
     d.status = 'PAID';
     d.paid_by = this.actorName();
     d.paid_at = nowIso();
+    d.paid_by_role = this.roleOf(d.paid_by);
     d.reference_no = referenceNo;
     d.received_by = receivedBy.trim();
     return d;
@@ -1008,8 +1029,8 @@ class MockApi implements PtaApi {
     const fund = this.funds[0];
     if (!fund) return;
     this.disbursements.push(
-      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0001`, fund_id: fund.id, fund_name: fund.name, payee: 'Sta. Maria Print Shop', received_by: 'Mr. Rey Santos', purpose: 'PTA ID lanyards for School Fair', amount: 1200, date: nowIso().slice(0, 10), status: 'PAID', created_by: 'Mrs. Alma Santos', approved_by: 'Mrs. Alma Santos', approved_at: nowIso(), paid_by: 'Mr. Ben Cruz', paid_at: nowIso(), reference_no: 'Check 000123', notes: '', created_at: nowIso() },
-      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0002`, fund_id: fund.id, fund_name: fund.name, payee: 'Rizal Food Supply', received_by: '', purpose: 'Awards & tokens — Recognition Day', amount: 2500, date: nowIso().slice(0, 10), status: 'DRAFT', created_by: 'Ms. Carol Lim', approved_by: null, approved_at: null, paid_by: null, paid_at: null, reference_no: '', notes: 'Waiting for President approval', created_at: nowIso() },
+      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0001`, fund_id: fund.id, fund_name: fund.name, payee: 'Sta. Maria Print Shop', received_by: 'Mr. Rey Santos', purpose: 'PTA ID lanyards for School Fair', amount: 1200, date: nowIso().slice(0, 10), status: 'PAID', created_by: 'Mrs. Alma Santos', approved_by: 'Mrs. Alma Santos', approved_at: nowIso(), paid_by: 'Mr. Ben Cruz', paid_at: nowIso(), reference_no: 'Check 000123', notes: '', created_at: nowIso(), created_by_role: this.roleOf('Mrs. Alma Santos'), approved_by_role: this.roleOf('Mrs. Alma Santos'), paid_by_role: this.roleOf('Mr. Ben Cruz') },
+      { id: this.seq.disb++, dv_no: `${this.settings.dv_prefix}${YEAR_START}-0002`, fund_id: fund.id, fund_name: fund.name, payee: 'Rizal Food Supply', received_by: '', purpose: 'Awards & tokens — Recognition Day', amount: 2500, date: nowIso().slice(0, 10), status: 'DRAFT', created_by: 'Ms. Carol Lim', approved_by: null, approved_at: null, paid_by: null, paid_at: null, reference_no: '', notes: 'Waiting for President approval', created_at: nowIso(), created_by_role: this.roleOf('Ms. Carol Lim'), approved_by_role: null, paid_by_role: null },
     );
   }
 

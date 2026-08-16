@@ -176,6 +176,8 @@ export interface FundAllocation {
 export interface CollectionDetail extends Collection {
   breakdown: ChargePayment[];
   allocations: FundAllocation[];
+  /** Family's remaining outstanding balance (all school years) after this receipt. */
+  family_balance: number;
 }
 
 export interface CollectionInput {
@@ -225,6 +227,10 @@ export interface Disbursement {
   reference_no: string;
   notes: string;
   created_at: string;
+  /** PTA officer role of the signatories (from pta_users), for the DV printout. */
+  created_by_role: PtaRole | null;
+  approved_by_role: PtaRole | null;
+  paid_by_role: PtaRole | null;
 }
 
 export interface DisbursementInput {

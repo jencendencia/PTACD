@@ -133,10 +133,19 @@ export async function collectionDetail(id: number): Promise<CollectionDetail> {
      ORDER BY f.name`,
     [id],
   );
+  // Family's remaining outstanding balance after this receipt (all years), so
+  // the OR printout can show what the guardian still owes.
+  const balRows = await db.query<{ bal: number }[]>(
+    `SELECT COALESCE(SUM(c.amount - c.paid_amount), 0) AS bal
+     FROM pta_charges c WHERE c.family_id = ?`,
+    [row.family_id],
+  );
+  const familyBalance = Math.round(Number(balRows[0]?.bal ?? 0) * 100) / 100;
   return {
     ...toCollection(row),
     breakdown: breakdown.map((b) => ({ ...b, amount: Number(b.amount) })),
     allocations: allocations.map((a) => ({ ...a, amount: Number(a.amount) })),
+    family_balance: familyBalance,
   };
 }
 

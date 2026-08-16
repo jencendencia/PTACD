@@ -14,6 +14,7 @@ import type {
   DisbursementInput,
   DisbursementStatus,
   PtaFilePick,
+  PtaRole,
 } from '../../shared/types';
 
 type DisbRow = {
@@ -35,6 +36,9 @@ type DisbRow = {
   reference_no: string;
   notes: string;
   created_at: string;
+  created_by_role: PtaRole | null;
+  approved_by_role: PtaRole | null;
+  paid_by_role: PtaRole | null;
 };
 
 const toDisb = (r: DisbRow): Disbursement => ({
@@ -56,7 +60,23 @@ const toDisb = (r: DisbRow): Disbursement => ({
   reference_no: r.reference_no,
   notes: r.notes,
   created_at: r.created_at,
+  created_by_role: (r.created_by_role as PtaRole) ?? null,
+  approved_by_role: (r.approved_by_role as PtaRole) ?? null,
+  paid_by_role: (r.paid_by_role as PtaRole) ?? null,
 });
+
+// Signatory roles are resolved by matching the stored name against pta_users
+// (full_name or username — actorName() stores whichever the user has).
+const DISB_SELECT = `
+  SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
+         d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
+         d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at,
+         uc.role AS created_by_role, ua.role AS approved_by_role, up.role AS paid_by_role
+  FROM pta_disbursements d
+  JOIN pta_funds f ON f.id = d.fund_id
+  LEFT JOIN pta_users uc ON uc.full_name = d.created_by OR uc.username = d.created_by
+  LEFT JOIN pta_users ua ON ua.full_name = d.approved_by OR ua.username = d.approved_by
+  LEFT JOIN pta_users up ON up.full_name = d.paid_by OR up.username = d.paid_by`;
 
 /** Counts existing vouchers for the prefix+year on the caller's connection.
  *  Callers MUST hold the `pta:dv-no:<prefix><year>` GET_LOCK (acquired before
@@ -96,11 +116,7 @@ export async function listDisbursements(filter: DisbursementFilter = {}): Promis
   const limit = Math.min(filter.limit ?? 50, 500);
   const offset = filter.offset ?? 0;
   const rows = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
-            d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
-            d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
-     FROM pta_disbursements d
-     JOIN pta_funds f ON f.id = d.fund_id
+    `${DISB_SELECT}
      ${whereSql}
      ORDER BY d.id DESC LIMIT ? OFFSET ?`,
     [...params, limit, offset],
@@ -153,10 +169,7 @@ export async function createDisbursement(input: DisbursementInput, actorName: st
   );
   if (!insertedId) throw new Error('Database is offline.');
   const [row] = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
-            d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
-            d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
-     FROM pta_disbursements d JOIN pta_funds f ON f.id = d.fund_id WHERE d.id = ?`,
+    `${DISB_SELECT} WHERE d.id = ?`,
     [insertedId],
   );
   return toDisb(row);
@@ -164,10 +177,7 @@ export async function createDisbursement(input: DisbursementInput, actorName: st
 
 export async function approveDisbursement(id: number, actorName: string): Promise<Disbursement> {
   const [row] = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
-            d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
-            d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
-     FROM pta_disbursements d JOIN pta_funds f ON f.id = d.fund_id WHERE d.id = ?`,
+    `${DISB_SELECT} WHERE d.id = ?`,
     [id],
   );
   if (!row) throw new Error('Disbursement not found.');
@@ -181,10 +191,7 @@ export async function approveDisbursement(id: number, actorName: string): Promis
 
 export async function payDisbursement(id: number, referenceNo: string, receivedBy: string, actorName: string): Promise<Disbursement> {
   const [row] = await db.query<DisbRow[]>(
-    `SELECT d.id, d.dv_no, d.fund_id, f.name AS fund_name, d.payee, d.received_by, d.purpose, d.amount,
-            d.d_date AS date, d.status, d.created_by, d.approved_by, d.approved_at,
-            d.paid_by, d.paid_at, d.reference_no, d.notes, d.created_at
-     FROM pta_disbursements d JOIN pta_funds f ON f.id = d.fund_id WHERE d.id = ?`,
+    `${DISB_SELECT} WHERE d.id = ?`,
     [id],
   );
   if (!row) throw new Error('Disbursement not found.');

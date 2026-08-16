@@ -311,7 +311,21 @@ function LiquidationModal({
               <td>{fmtDate(i.date)}</td>
               <td>{i.description}</td>
               <td className="num">{fmtMoney(i.amount)}</td>
-              <td>{i.attachment_name ? <span className="pill pill-info">📎 {i.attachment_name}</span> : <span className="text-dim">—</span>}</td>
+              <td>
+                {i.attachment_name && i.attachment_id ? (
+                  <button
+                    className="pill pill-info pill-link"
+                    title="Open attachment"
+                    onClick={() => void api.openAttachment(i.attachment_id!).catch(() => notify('Cannot open in browser mock mode'))}
+                  >
+                    📎 {i.attachment_name}
+                  </button>
+                ) : i.attachment_name ? (
+                  <span className="pill pill-info">📎 {i.attachment_name}</span>
+                ) : (
+                  <span className="text-dim">—</span>
+                )}
+              </td>
               <td>
                 {!closed && (
                   <button className="btn-icon danger" title="Remove" onClick={() => void removeItem(i.id)}>🗑</button>

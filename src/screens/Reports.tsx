@@ -94,22 +94,36 @@ export function ReportsScreen() {
       {tab === 'parents' && (
         <Table
           cols={['Family', 'Children', 'Total charges', 'Total paid', 'Balance']}
-          rows={parentRows?.map((r) => [r.guardian_name, String(r.student_count), fmtMoney(r.total_charges), fmtMoney(r.total_paid), fmtMoney(r.balance)])}
+          rows={(() => {
+            if (!parentRows) return undefined;
+            const rows = parentRows.map((r) => [r.guardian_name, String(r.student_count), fmtMoney(r.total_charges), fmtMoney(r.total_paid), fmtMoney(r.balance)]);
+            const sum = (k: 'student_count' | 'total_charges' | 'total_paid' | 'balance') => parentRows.reduce((s, r) => s + r[k], 0);
+            rows.push(['TOTAL', String(sum('student_count')), fmtMoney(sum('total_charges')), fmtMoney(sum('total_paid')), fmtMoney(sum('balance'))]);
+            return rows;
+          })()}
           loading={parentRows === null}
           numCols={[2, 3, 4]}
+          lastStrong
         />
       )}
 
       {tab === 'sections' && (
         <Table
           cols={['Section', 'Students', 'Total charges', 'Total paid', 'Balance', '']}
-          rows={sectionRows?.map((r) => [r.grade_section, String(r.students), fmtMoney(r.total_charges), fmtMoney(r.total_paid), fmtMoney(r.balance), '👁'])}
+          rows={(() => {
+            if (!sectionRows) return undefined;
+            const rows = sectionRows.map((r) => [r.grade_section, String(r.students), fmtMoney(r.total_charges), fmtMoney(r.total_paid), fmtMoney(r.balance), '👁']);
+            const sum = (k: 'students' | 'total_charges' | 'total_paid' | 'balance') => sectionRows.reduce((s, r) => s + r[k], 0);
+            rows.push(['TOTAL', String(sum('students')), fmtMoney(sum('total_charges')), fmtMoney(sum('total_paid')), fmtMoney(sum('balance')), '']);
+            return rows;
+          })()}
           loading={sectionRows === null}
           numCols={[1, 2, 3, 4]}
           rowActions={sectionRows?.map((r) => ({
             label: `View guardians of ${r.grade_section}`,
             onClick: () => void openSection(r.grade_section),
           }))}
+          lastStrong
         />
       )}
 
