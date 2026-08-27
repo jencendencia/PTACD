@@ -14,7 +14,6 @@ import type {
   CollectionFilter,
   CollectionInput,
   FundAllocation,
-  ManualAllocation,
 } from '../../shared/types';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
