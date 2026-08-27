@@ -49,11 +49,32 @@ const toFamily = (r: FamilyRow): Family => ({
   prior_balance: Number(r.prior_balance ?? 0),
 });
 
-/** Rebuilds pta_families from the students table. Idempotent; returns count. */
+/**
+ * Rebuilds pta_families from the students AND guardians tables.
+ *
+ * Guardians registered in the TapIn School guardians table may not yet have
+ * any linked students. We still want them visible in the PTA CD so the
+ * treasurer can start recording charges. We merge student-derived families
+ * with guardian-only rows into one set of family keys.
+ *
+ * Idempotent; returns count.
+ */
 export async function syncFamilies(): Promise<number> {
+  // --- Students: derive family rows from the students roster ---
   const students = await db.query<StudentRow[]>(
     'SELECT id, student_no, full_name, grade_section, parent_phone, guardian_name, guardian_address, is_active FROM students',
   );
+  // --- Guardians: pick up any guardians table rows that may not yet have
+  //     a student linked to them (newly registered via the TapIn School app).
+  type GuardianRow = { full_name: string; mobile: string; address: string; is_active: number };
+  let guardianRows: GuardianRow[] = [];
+  try {
+    guardianRows = await db.query<GuardianRow[]>(
+      'SELECT full_name, mobile, address, is_active FROM guardians',
+    );
+  } catch {
+    // guardians table may not exist in older PTA CD installs — degrade.
+  }
   const existing = await db.query<{ id: number; family_key: string }[]>(
     'SELECT id, family_key FROM pta_families',
   );
@@ -67,23 +88,50 @@ export async function syncFamilies(): Promise<number> {
     groups.set(key, arr);
   }
 
+  // Merge guardians that have NO linked students yet (newly registered in
+  // the TapIn School app). They appear with student_count=0 so the PTA
+  // treasurer can start recording charges against them immediately.
+  const guardianByKey = new Map<string, GuardianRow>();
+  for (const g of guardianRows) {
+    const name = String(g.full_name ?? '').trim();
+    if (!name) continue;
+    const address = String(g.address ?? '').trim();
+    const key = `${name}|${address}`;
+    guardianByKey.set(key, g);
+    if (groups.has(key)) continue; // already covered by a student row
+    // Sentinel: an empty array means 'guardian-only, zero students linked'.
+    groups.set(key, [] as unknown as StudentRow[]);
+  }
+
   for (const [key, members] of groups) {
     const active = members.filter((m) => !!m.is_active);
-    const phone = members.find((m) => m.parent_phone.trim())?.parent_phone ?? '';
-    const firstName = members[0]?.guardian_name?.trim() || members[0]?.full_name;
-    const address = members[0]?.guardian_address?.trim() ?? '';
+    // Guardian-only entries (newly registered, no student linked yet) have
+    // an empty members array — parse the name + address from the family key
+    // and pull phone/active status from the guardians table.
+    const isGuardianOnly = members.length === 0;
+    const gInfo = isGuardianOnly ? guardianByKey.get(key) : undefined;
+    const phone = isGuardianOnly
+      ? String(gInfo?.mobile ?? '').trim()
+      : (members.find((m) => m.parent_phone.trim())?.parent_phone ?? '');
+    const firstName = isGuardianOnly
+      ? (key.startsWith('SELF|') ? key.slice(5) : key.split('|')[0] || '')
+      : (members[0]?.guardian_name?.trim() || members[0]?.full_name);
+    const address = isGuardianOnly
+      ? (key.includes('|') ? key.slice(key.indexOf('|') + 1) : '')
+      : (members[0]?.guardian_address?.trim() ?? '');
+    const isActive = isGuardianOnly ? !!gInfo?.is_active : active.length > 0;
     if (idByKey.has(key)) {
       await db.execute(
         `UPDATE pta_families
          SET guardian_name = ?, guardian_address = ?, parent_phone = ?, student_count = ?, is_active = ?
          WHERE id = ?`,
-        [firstName, address, phone, active.length, active.length > 0 ? 1 : 0, idByKey.get(key)],
+        [firstName, address, phone, active.length, isActive ? 1 : 0, idByKey.get(key)],
       );
     } else {
       const res = await db.execute(
         `INSERT INTO pta_families (family_key, guardian_name, guardian_address, parent_phone, student_count, is_active)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [key, firstName, address, phone, active.length, active.length > 0 ? 1 : 0],
+        [key, firstName, address, phone, active.length, isActive ? 1 : 0],
       );
       idByKey.set(key, res.insertId);
     }
