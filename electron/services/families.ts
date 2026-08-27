@@ -169,6 +169,9 @@ export async function syncFamilies(): Promise<number> {
 }
 
 export async function listFamilies(search?: string): Promise<Family[]> {
+  // Auto-sync before every query so guardians registered in the TapIn School
+  // app appear in the PTA CD immediately (without requiring a manual sync).
+  await syncFamilies().catch(() => {});
   const year = get().school_year;
   const params: unknown[] = [year];
   let where = '';
