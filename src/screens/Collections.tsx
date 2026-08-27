@@ -129,6 +129,8 @@ export function CollectionsScreen() {
       setStudentId(0);
       setOffset(0);
       load(0);
+      // Re-fetch families so the dropdown shows the updated balance.
+      void api.listFamilies().then(setFamilies).catch(() => {});
     } catch (err) {
       setError(errMsg(err));
     } finally {
