@@ -30,6 +30,10 @@ export function CollectionsScreen() {
   const [receiptToVoid, setReceiptToVoid] = useState<Collection | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [voidError, setVoidError] = useState<string | null>(null);
+  // Field validation highlights — use a counter as a key to re-trigger the CSS shake animation on each click
+  const [highlightFamily, setHighlightFamily] = useState(false);
+  const [highlightAmount, setHighlightAmount] = useState(false);
+  const [shakeGen, setShakeGen] = useState(0);
   // Manual distribution mode
   const [distMode, setDistMode] = useState<'auto' | 'manual'>('auto');
   const [manualOpen, setManualOpen] = useState(false);
@@ -125,13 +129,26 @@ export function CollectionsScreen() {
   };
 
   const save = async () => {
+    let hasError = false;
     if (!familyId) {
-      setError('Select a family.');
-      return;
+      setHighlightFamily(true);
+      hasError = true;
     }
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) {
-      setError('Enter a valid amount.');
+      setHighlightAmount(true);
+      hasError = true;
+    }
+    if (hasError) {
+      setShakeGen((g) => g + 1);
+      notify('Please fill in the highlighted fields.', 'error');
+      return;
+    }
+    // Check for overpayment
+    if (outstanding && outstanding.total_due > 0 && amt > outstanding.total_due) {
+      setHighlightAmount(true);
+      setShakeGen((g) => g + 1);
+      notify(`Amount exceeds the outstanding balance of ${fmtMoney(outstanding.total_due)}. Please enter a valid amount.`, 'error');
       return;
     }
     setSaving(true);
@@ -193,11 +210,11 @@ export function CollectionsScreen() {
       <div className="card form-card">
         <h3>Record collection</h3>
         <div className="grid-2">
-          <div className="field">
+          <div key={`family-${highlightFamily ? shakeGen : 0}`} className={`field ${highlightFamily ? 'field-error' : ''}`}>
             <label>Family (guardian)</label>
             <SearchSelect
               value={familyId || null}
-              onSelect={(v) => onFamilySelect(v ?? 0)}
+              onSelect={(v) => { setHighlightFamily(false); onFamilySelect(v ?? 0); }}
               options={families.map((f) => ({
                 value: f.id,
                 label: `${f.guardian_name}${f.student_count > 1 ? ` (${f.student_count} children)` : ''} — ${fmtMoney(f.balance)}`,
@@ -207,16 +224,20 @@ export function CollectionsScreen() {
               emptyText="No family matches your search"
             />
           </div>
-          <div className="field">
-            <label>Amount (₱)</label>
+          <div key={`amount-${highlightAmount ? shakeGen : 0}`} className={`field ${highlightAmount || (outstanding && amount && Number(amount) > outstanding.total_due) ? 'field-error' : ''}`}>
+            <label>Amount (₱) <span className="required-dot">*</span></label>
             <input
               type="number"
               min="0"
               step="0.01"
+              required
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => { setHighlightAmount(false); setAmount(e.target.value); }}
               placeholder="e.g. 650"
             />
+            {outstanding && amount && Number(amount) > outstanding.total_due && (
+              <p className="field-hint sms-error">Amount cannot exceed the outstanding balance of {fmtMoney(outstanding.total_due)}.</p>
+            )}
           </div>
           {familyId > 0 && outstanding && (
             <div className="field field-full">
@@ -290,6 +311,10 @@ export function CollectionsScreen() {
                   type="button"
                   className={`dist-toggle-btn ${distMode === 'manual' ? 'on' : ''}`}
                   onClick={() => {
+                    if (!amount || Number(amount) <= 0) {
+                      notify('Enter a payment amount first before using manual distribution.', 'error');
+                      return;
+                    }
                     setDistMode('manual');
                     void fetchUnpaid().then(() => setManualOpen(true));
                   }}
@@ -495,6 +520,14 @@ function ManualDistributionModal({
   const setAlloc = (chargeId: number, val: string) => {
     // Allow only valid numbers
     if (val && !/^[\d.]*$/.test(val)) return;
+    // Block typing when the payment is fully allocated (remaining <= 0).
+    const cur = Number(amounts[chargeId]) || 0;
+    const newVal = Number(val) || 0;
+    const diff = newVal - cur;
+    if (diff > 0 && remaining < 0.001) {
+      setError('Payment is fully allocated. Remove an allocation first before adding to another fee.');
+      return;
+    }
     setAmounts((prev) => ({ ...prev, [chargeId]: val }));
     setError(null);
   };
@@ -518,10 +551,22 @@ function ManualDistributionModal({
     setAmounts(next);
   };
 
-  /** Check a charge for the full remaining balance. */
+  /** Check a charge for the full remaining balance, or clear it. */
   const checkFull = (c: Charge) => {
+    const cur = Number(amounts[c.id]) || 0;
     const due = Math.round((Number(c.amount) - Number(c.paid_amount)) * 100) / 100;
-    setAmounts((prev) => ({ ...prev, [c.id]: String(due) }));
+    // If already allocated, clear it.
+    if (cur > 0.001) {
+      setAmounts((prev) => ({ ...prev, [c.id]: '' }));
+      return;
+    }
+    if (remaining < 0.001) {
+      setError('Payment is fully allocated. Remove an allocation first before adding to another fee.');
+      return;
+    }
+    // Only allocate up to what's remaining.
+    const take = Math.min(due, remaining);
+    setAmounts((prev) => ({ ...prev, [c.id]: String(Math.round(take * 100) / 100) }));
   };
 
   const confirm = () => {
@@ -564,8 +609,10 @@ function ManualDistributionModal({
               const due = Math.round((Number(c.amount) - Number(c.paid_amount)) * 100) / 100;
               const allocVal = Number(amounts[c.id]) || 0;
               const overAlloc = allocVal > due + 0.001;
+              const isFullyPaid = allocVal >= due - 0.001;
+              const locked = remaining < 0.001 && !isFullyPaid;
               return (
-                <tr key={c.id} className={overAlloc ? 'row-error' : ''}>
+                <tr key={c.id} className={overAlloc ? 'row-error' : locked ? 'row-locked' : ''}>
                   <td>{c.component_label}{c.term ? ` (${c.term})` : ''}</td>
                   <td>{c.student_name}</td>
                   <td className="num">{fmtMoney(c.amount)}</td>
@@ -577,15 +624,17 @@ function ManualDistributionModal({
                       min="0"
                       max={due}
                       step="0.01"
-                      className="alloc-input"
+                      className={`alloc-input${locked ? ' locked' : ''}`}
                       value={amounts[c.id] ?? ''}
                       onChange={(e) => setAlloc(c.id, e.target.value)}
                       placeholder="0.00"
+                      disabled={locked}
+                      title={locked ? 'Payment is fully allocated' : undefined}
                     />
                   </td>
                   <td>
-                    <button type="button" className="btn-ghost sm" onClick={() => checkFull(c)} title="Pay full balance">
-                      Full
+                    <button type="button" className="btn-ghost sm" onClick={() => checkFull(c)} title={allocVal > 0.001 ? 'Clear allocation' : 'Pay full balance'} disabled={locked}>
+                      {allocVal > 0.001 ? 'Clear' : 'Full'}
                     </button>
                   </td>
                 </tr>
@@ -610,7 +659,7 @@ function ManualDistributionModal({
       {error && <p className="field-hint sms-error">{error}</p>}
       <div className="form-actions">
         <button className="btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn-primary" onClick={confirm} disabled={charges.length === 0}>
+        <button className="btn-primary" onClick={confirm} disabled={charges.length === 0 || !isValid}>
           ✓ Confirm allocation
         </button>
       </div>

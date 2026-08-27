@@ -210,6 +210,21 @@ body {
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field label { font-size: 13px; font-weight: 650; color: var(--text-dim); }
 .field-hint { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
+.field-error { animation: fieldShake 0.4s ease; }
+.field-error > label { color: var(--rose) !important; }
+.field-error > input,
+.field-error > select,
+.field-error > textarea,
+.field-error > .search-select > .search-select-input {
+  border-color: var(--rose) !important;
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.15) !important;
+}
+@keyframes fieldShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  50% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
 .db-modal-hint { margin-top: 0; }
 .sms-error { color: #fb7185; }
 .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
@@ -969,9 +984,13 @@ button.pill-link:hover { background: var(--indigo-soft); border-color: #6366f1; 
   font-size: 13px; font-family: var(--mono);
 }
 .alloc-input:focus { border-color: var(--emerald); outline: none; }
+.alloc-input.locked { background: rgba(244, 63, 94, 0.06); border-color: rgba(244, 63, 94, 0.25); color: var(--text-faint); cursor: not-allowed; }
+.alloc-input:disabled { opacity: 0.6; }
 .row-error { background: rgba(244, 63, 94, 0.08); }
+.row-locked { background: rgba(244, 63, 94, 0.04); }
 .manual-dist-footer {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 0; border-top: 1px solid var(--border); margin-top: 8px;
 }
 .manual-dist-totals { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.required-dot { color: var(--rose); font-size: 14px; }
