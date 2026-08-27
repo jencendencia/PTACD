@@ -32,6 +32,7 @@ function createWindow(): void {
     // controls cover minimize/maximize/close there too).
     frame: false,
     backgroundColor: '#020617',
+    icon: path.join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
