@@ -14,6 +14,7 @@ import type {
   CollectionFilter,
   CollectionInput,
   FundAllocation,
+  ManualAllocation,
 } from '../../shared/types';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -221,15 +222,40 @@ export async function createCollection(input: CollectionInput, actorName: string
           throw new Error(`Selected child has no outstanding charges${scopeLabel}.`);
         }
 
-        // Apply the payment across charges (FIFO).
-        let remaining = amount;
-        const payments: { charge: Charge; amount: number }[] = [];
-        for (const c of orderedCharges) {
-          if (remaining <= 0.0001) break;
-          const due = Number(c.amount) - Number(c.paid_amount);
-          const take = Math.min(due, remaining);
-          payments.push({ charge: c, amount: round2(take) });
-          remaining = round2(remaining - take);
+        // Apply the payment across charges: manual allocation (user picks
+        // which charges) or auto-FIFO (oldest unpaid first).
+        let payments: { charge: Charge; amount: number }[] = [];
+        if (input.manual_allocations && input.manual_allocations.length > 0) {
+          // Manual mode: the user specified exactly which charges to pay.
+          const allocs = input.manual_allocations;
+          const totalAllocated = allocs.reduce((s, a) => s + Number(a.amount), 0);
+          if (Math.abs(round2(totalAllocated) - amount) > 0.001) {
+            throw new Error(`Manual allocations (${totalAllocated.toFixed(2)}) do not match the payment amount (${amount.toFixed(2)}).`);
+          }
+          // Build a lookup of the family's unpaid charges (already locked FOR UPDATE).
+          const unpaidMap = new Map<number, Charge>();
+          for (const c of unpaid) unpaidMap.set(c.id, c);
+          for (const alloc of allocs) {
+            const charge = unpaidMap.get(alloc.charge_id);
+            if (!charge) throw new Error(`Charge #${alloc.charge_id} not found or already fully paid.`);
+            const due = Number(charge.amount) - Number(charge.paid_amount);
+            const allocAmt = round2(Number(alloc.amount));
+            if (allocAmt <= 0) throw new Error(`Allocation amount for charge #${alloc.charge_id} must be greater than 0.`);
+            if (allocAmt > due + 0.001) {
+              throw new Error(`Allocation for "${charge.component_id}" (${allocAmt.toFixed(2)}) exceeds the remaining balance (${due.toFixed(2)}).`);
+            }
+            payments.push({ charge, amount: allocAmt });
+          }
+        } else {
+          // Auto-FIFO mode.
+          let remaining = amount;
+          for (const c of orderedCharges) {
+            if (remaining <= 0.0001) break;
+            const due = Number(c.amount) - Number(c.paid_amount);
+            const take = Math.min(due, remaining);
+            payments.push({ charge: c, amount: round2(take) });
+            remaining = round2(remaining - take);
+          }
         }
 
         // Insert the collection + OR number (allocated under the lock above).

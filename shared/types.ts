@@ -180,6 +180,13 @@ export interface CollectionDetail extends Collection {
   family_balance: number;
 }
 
+export interface ManualAllocation {
+  /** The charge to apply this portion of the payment to. */
+  charge_id: number;
+  /** Amount to apply to this charge (must not exceed the charge's remaining balance). */
+  amount: number;
+}
+
 export interface CollectionInput {
   family_id: number;
   amount: number;
@@ -193,6 +200,12 @@ export interface CollectionInput {
   pay_year?: string;
   collected_at?: string;
   notes?: string;
+  /**
+   * Optional manual distribution: the user picks which charges to pay and how
+   * much for each. When provided, the auto-FIFO logic is skipped and only the
+   * specified charges are settled. The sum of amounts must equal `amount`.
+   */
+  manual_allocations?: ManualAllocation[];
 }
 
 export interface CollectionFilter {

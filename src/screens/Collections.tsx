@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Collection, CollectionDetail, Family, FamilyChild, FamilyOutstanding } from '../../shared/types';
+import type { Charge, Collection, CollectionDetail, Family, FamilyChild, FamilyOutstanding, ManualAllocation } from '../../shared/types';
 import { api, errMsg } from '../lib/api';
 import { Modal, PrintHeader, SearchSelect, Spinner, Toast, fmtDateTime, fmtMoney, printModal, todayIso } from '../components/shared';
 
@@ -30,6 +30,11 @@ export function CollectionsScreen() {
   const [receiptToVoid, setReceiptToVoid] = useState<Collection | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [voidError, setVoidError] = useState<string | null>(null);
+  // Manual distribution mode
+  const [distMode, setDistMode] = useState<'auto' | 'manual'>('auto');
+  const [manualOpen, setManualOpen] = useState(false);
+  const [unpaidCharges, setUnpaidCharges] = useState<Charge[]>([]);
+  const [manualAllocs, setManualAllocs] = useState<ManualAllocation[]>([]);
 
   const PAGE = 20;
   const load = useCallback((off = 0) => {
@@ -65,6 +70,7 @@ export function CollectionsScreen() {
     setPayYear('');
     setAmount('');
     setError(null);
+    setManualAllocs([]);
     if (fid) {
       api
         .getFamilyDetail(fid)
@@ -77,6 +83,24 @@ export function CollectionsScreen() {
     } else {
       setChildren(null);
       setOutstanding(null);
+      setUnpaidCharges([]);
+    }
+  };
+
+  /** Fetch unpaid charges for the manual distribution modal. */
+  const fetchUnpaid = async () => {
+    if (!familyId) return;
+    const year = payYear === '*' ? schoolYear : payYear || schoolYear;
+    try {
+      const charges = await api.listCharges(year, familyId);
+      const unpaid = charges.filter((c) => c.paid_amount < c.amount);
+      setUnpaidCharges(unpaid);
+      // Pre-fill with current manual allocs (preserving user edits)
+      setManualAllocs((prev) =>
+        prev.filter((a) => unpaid.some((c) => c.id === a.charge_id)),
+      );
+    } catch {
+      setUnpaidCharges([]);
     }
   };
 
@@ -120,6 +144,7 @@ export function CollectionsScreen() {
         pay_year: payYear || undefined,
         collected_at: date || undefined,
         notes: notes || undefined,
+        manual_allocations: distMode === 'manual' && manualAllocs.length > 0 ? manualAllocs : undefined,
       });
       setDetail(detailRow);
       setAmount('');
@@ -127,6 +152,9 @@ export function CollectionsScreen() {
       setFamilyId(0);
       setChildren(null);
       setStudentId(0);
+      setManualAllocs([]);
+      setUnpaidCharges([]);
+      setDistMode('auto');
       setOffset(0);
       load(0);
       // Re-fetch families so the dropdown shows the updated balance.
@@ -247,10 +275,53 @@ export function CollectionsScreen() {
             <label>Notes (optional)</label>
             <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Cash — first payment" />
           </div>
+          {familyId > 0 && (
+            <div className="field field-full">
+              <label>Distribution</label>
+              <div className="dist-toggle">
+                <button
+                  type="button"
+                  className={`dist-toggle-btn ${distMode === 'auto' ? 'on' : ''}`}
+                  onClick={() => { setDistMode('auto'); setManualAllocs([]); }}
+                >
+                  ⚡ Auto (FIFO)
+                </button>
+                <button
+                  type="button"
+                  className={`dist-toggle-btn ${distMode === 'manual' ? 'on' : ''}`}
+                  onClick={() => {
+                    setDistMode('manual');
+                    void fetchUnpaid().then(() => setManualOpen(true));
+                  }}
+                >
+                  ✏️ Manual
+                </button>
+              </div>
+              {distMode === 'manual' && manualAllocs.length > 0 && (
+                <div className="manual-summary">
+                  <span className="text-dim">Manual allocation:</span>
+                  {manualAllocs.map((a) => {
+                    const ch = unpaidCharges.find((c) => c.id === a.charge_id);
+                    return (
+                      <span key={a.charge_id} className="chip" style={{ cursor: 'default' }}>
+                        {ch ? `${ch.component_label}` : `Charge #${a.charge_id}`}: {fmtMoney(a.amount)}
+                      </span>
+                    );
+                  })}
+                  <span className="text-dim" style={{ marginLeft: 4 }}>
+                    Total: {fmtMoney(manualAllocs.reduce((s, a) => s + a.amount, 0))}
+                  </span>
+                  <button type="button" className="btn-ghost sm" onClick={() => setManualOpen(true)}>Edit</button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {error && <p className="field-hint sms-error">{error}</p>}
         <p className="field-hint">
-          The payment is auto-applied to the family's oldest unpaid charges (membership once per family, then per child) and distributed to funds by the configured rules.
+          {distMode === 'auto'
+            ? 'The payment is auto-applied to the family\u2019s oldest unpaid charges (membership once per family, then per child) and distributed to funds by the configured rules.'
+            : 'You chose manual distribution — only the selected charges will be settled.'}
           {studentId > 0 && ' When a specific child is selected, their charges are settled first.'}
           {payYear === '*' && " The payment settles every year's balance, oldest first."}
           {payYear && payYear !== '*' && ` The payment settles the SY ${payYear} balance only.`}
@@ -368,7 +439,174 @@ export function CollectionsScreen() {
         </Modal>
       )}
 
+      {manualOpen && (
+        <ManualDistributionModal
+          charges={unpaidCharges}
+          allocs={manualAllocs}
+          totalPayment={Number(amount) || 0}
+          onConfirm={(allocs) => {
+            setManualAllocs(allocs);
+            setManualOpen(false);
+          }}
+          onClose={() => setManualOpen(false)}
+        />
+      )}
+
       {toast && <Toast message={toast} tone={toastTone} />}
     </div>
+  );
+}
+
+/**
+ * Modal for manual payment distribution: the user picks which unpaid charges
+ * to pay and how much for each. The total must equal the payment amount.
+ */
+function ManualDistributionModal({
+  charges,
+  allocs: initialAllocs,
+  totalPayment,
+  onConfirm,
+  onClose,
+}: {
+  charges: Charge[];
+  allocs: ManualAllocation[];
+  totalPayment: number;
+  onConfirm: (allocs: ManualAllocation[]) => void;
+  onClose: () => void;
+}) {
+  // Build a map of charge_id → amount from the initial allocations.
+  const initMap = new Map(initialAllocs.map((a) => [a.charge_id, a.amount]));
+  const [amounts, setAmounts] = useState<Record<number, string>>(() => {
+    const m: Record<number, string> = {};
+    for (const c of charges) {
+      const a = initMap.get(c.id);
+      m[c.id] = a != null ? String(a) : '';
+    }
+    return m;
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  const totalAllocated = Object.values(amounts)
+    .map((v) => Number(v) || 0)
+    .reduce((s, n) => s + n, 0);
+  const remaining = Math.round((totalPayment - totalAllocated) * 100) / 100;
+  const isValid = Math.abs(remaining) < 0.001 && totalAllocated > 0;
+
+  const setAlloc = (chargeId: number, val: string) => {
+    // Allow only valid numbers
+    if (val && !/^[\d.]*$/.test(val)) return;
+    setAmounts((prev) => ({ ...prev, [chargeId]: val }));
+    setError(null);
+  };
+
+  /** Auto-fill the remaining amount into the first empty charge (or the last one). */
+  const autoFill = () => {
+    const filled = Object.entries(amounts)
+      .filter(([, v]) => Number(v) > 0)
+      .map(([k]) => Number(k));
+    // Find the first charge not yet filled
+    const target = charges.find((c) => !filled.includes(c.id));
+    if (target) {
+      setAmounts((prev) => ({ ...prev, [target.id]: String(Math.max(0, remaining + (Number(prev[target.id]) || 0))) }));
+    }
+  };
+
+  /** Check a charge for the full remaining balance. */
+  const checkFull = (c: Charge) => {
+    const due = Math.round((Number(c.amount) - Number(c.paid_amount)) * 100) / 100;
+    setAmounts((prev) => ({ ...prev, [c.id]: String(due) }));
+  };
+
+  const confirm = () => {
+    if (!isValid) {
+      setError(
+        remaining > 0
+          ? `Still ${fmtMoney(remaining)} unallocated. Assign the full amount.`
+          : `Allocations exceed the payment by ${fmtMoney(-remaining)}.`,
+      );
+      return;
+    }
+    const allocs: ManualAllocation[] = [];
+    for (const c of charges) {
+      const val = Number(amounts[c.id]) || 0;
+      if (val > 0) allocs.push({ charge_id: c.id, amount: Math.round(val * 100) / 100 });
+    }
+    onConfirm(allocs);
+  };
+
+  return (
+    <Modal title="Manual payment distribution" onClose={onClose} wide>
+      <p className="field-hint" style={{ marginTop: 0 }}>
+        Pick which charges to pay and how much for each. The total must equal the payment amount of <strong>{fmtMoney(totalPayment)}</strong>.
+      </p>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Charge</th>
+              <th>Student</th>
+              <th className="num">Amount</th>
+              <th className="num">Paid</th>
+              <th className="num">Balance</th>
+              <th className="num">Your allocation</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {charges.map((c) => {
+              const due = Math.round((Number(c.amount) - Number(c.paid_amount)) * 100) / 100;
+              const allocVal = Number(amounts[c.id]) || 0;
+              const overAlloc = allocVal > due + 0.001;
+              return (
+                <tr key={c.id} className={overAlloc ? 'row-error' : ''}>
+                  <td>{c.component_label}{c.term ? ` (${c.term})` : ''}</td>
+                  <td>{c.student_name}</td>
+                  <td className="num">{fmtMoney(c.amount)}</td>
+                  <td className="num">{fmtMoney(c.paid_amount)}</td>
+                  <td className="num strong">{fmtMoney(due)}</td>
+                  <td className="num">
+                    <input
+                      type="number"
+                      min="0"
+                      max={due}
+                      step="0.01"
+                      className="alloc-input"
+                      value={amounts[c.id] ?? ''}
+                      onChange={(e) => setAlloc(c.id, e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </td>
+                  <td>
+                    <button type="button" className="btn-ghost sm" onClick={() => checkFull(c)} title="Pay full balance">
+                      Full
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+            {charges.length === 0 && (
+              <tr><td colSpan={7} className="empty-cell">No unpaid charges for this family.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="manual-dist-footer">
+        <div className="manual-dist-totals">
+          <span className="text-dim">Payment:</span> <strong>{fmtMoney(totalPayment)}</strong>
+          <span className="text-dim" style={{ marginLeft: 12 }}>Allocated:</span> <strong className={isValid ? 'pos' : ''}>{fmtMoney(totalAllocated)}</strong>
+          <span className="text-dim" style={{ marginLeft: 12 }}>Remaining:</span> <strong className={remaining > 0.001 ? 'neg' : ''}>{fmtMoney(Math.max(0, remaining))}</strong>
+        </div>
+        <button type="button" className="btn-ghost" onClick={autoFill} disabled={remaining <= 0.001}>
+          Auto-fill remaining
+        </button>
+      </div>
+      {error && <p className="field-hint sms-error">{error}</p>}
+      <div className="form-actions">
+        <button className="btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn-primary" onClick={confirm} disabled={charges.length === 0}>
+          ✓ Confirm allocation
+        </button>
+      </div>
+    </Modal>
   );
 }
