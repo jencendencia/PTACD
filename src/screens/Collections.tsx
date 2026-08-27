@@ -499,16 +499,23 @@ function ManualDistributionModal({
     setError(null);
   };
 
-  /** Auto-fill the remaining amount into the first empty charge (or the last one). */
+  /** Distribute the remaining amount across empty charges using FIFO. */
   const autoFill = () => {
-    const filled = Object.entries(amounts)
-      .filter(([, v]) => Number(v) > 0)
-      .map(([k]) => Number(k));
-    // Find the first charge not yet filled
-    const target = charges.find((c) => !filled.includes(c.id));
-    if (target) {
-      setAmounts((prev) => ({ ...prev, [target.id]: String(Math.max(0, remaining + (Number(prev[target.id]) || 0))) }));
+    // Build the list of charges with their current allocation.
+    let left = Math.round(remaining * 100) / 100;
+    if (left <= 0.001) return;
+    const next: Record<number, string> = { ...amounts };
+    for (const c of charges) {
+      if (left <= 0.001) break;
+      const cur = Number(next[c.id]) || 0;
+      const due = Math.round((Number(c.amount) - Number(c.paid_amount)) * 100) / 100;
+      const room = Math.round((due - cur) * 100) / 100;
+      if (room <= 0.001) continue;
+      const take = Math.min(room, left);
+      next[c.id] = String(Math.round((cur + take) * 100) / 100);
+      left = Math.round((left - take) * 100) / 100;
     }
+    setAmounts(next);
   };
 
   /** Check a charge for the full remaining balance. */
