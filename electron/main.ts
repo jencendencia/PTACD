@@ -80,6 +80,27 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Serve the bundled user manual PDF over pta-manual:// so the renderer
+  // can embed it in an <iframe> without needing file:// or data: URLs.
+  protocol.handle('pta-manual', async () => {
+    const candidates = [
+      path.join(process.resourcesPath, 'PTA_CD_User_Manual.pdf'),
+      path.join(__dirname, '../../resources/PTA_CD_User_Manual.pdf'),
+      path.join(__dirname, '../resources/PTA_CD_User_Manual.pdf'),
+    ];
+    for (const filePath of candidates) {
+      try {
+        const data = await fs.readFile(filePath);
+        return new Response(new Uint8Array(data), {
+          headers: { 'Content-Type': 'application/pdf' },
+        });
+      } catch {
+        // try next candidate
+      }
+    }
+    return new Response('User manual not found', { status: 404 });
+  });
+
   registerIpc();
   createWindow();
   configureDbFromDisk();

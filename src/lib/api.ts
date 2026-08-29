@@ -872,6 +872,15 @@ class MockApi implements PtaApi {
     return 'DEMO-MACHINE-ID';
   }
 
+  // ---- user manual ------------------------------------------------------------------
+  async openUserManual(): Promise<void> {
+    // In browser mock mode, open the PDF via the public path.
+    window.open('PTA_CD_User_Manual.pdf', '_blank');
+  }
+  async getUserManualPath(): Promise<string> {
+    return 'PTA_CD_User_Manual.pdf';
+  }
+
   // ---- reports ----------------------------------------------------------------------------------
   async getDashboard(): Promise<PtaDashboard> {
     this.requireUser();

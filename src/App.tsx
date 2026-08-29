@@ -15,6 +15,7 @@ import { AdvancesScreen } from './screens/Advances';
 import { FundsScreen } from './screens/Funds';
 import { ReportsScreen } from './screens/Reports';
 import { SettingsScreen } from './screens/Settings';
+import { UserManualModal } from './components/UserManualModal';
 
 type Tab = 'dashboard' | 'collections' | 'families' | 'disbursements' | 'advances' | 'funds' | 'reports' | 'settings';
 
@@ -36,6 +37,7 @@ export default function App() {
   const [settings, setSettings] = useState<PtaSettings | null>(null);
   const [schoolYears, setSchoolYears] = useState<string[]>([]);
   const [school, setSchool] = useState<SchoolInfo | null>(null);
+  const [showManual, setShowManual] = useState(false);
 
   // Check whether this machine is activated, and restore a session the main
   // process still holds (e.g. after a renderer reload that followed a database
@@ -119,6 +121,7 @@ export default function App() {
                     <span className="text-dim">{PTA_ROLE_LABELS[user.role]}</span>
                   </div>
                 </div>
+                <button className="btn-ghost" onClick={() => setShowManual(true)}>📖 Manual</button>
                 <button className="btn-ghost" onClick={logout}>🔒 Log out</button>
               </div>
             </aside>
@@ -130,11 +133,12 @@ export default function App() {
               {tab === 'advances' && <AdvancesScreen user={user} />}
               {tab === 'funds' && <FundsScreen />}
               {tab === 'reports' && <ReportsScreen />}
-              {tab === 'settings' && <SettingsScreen user={user} onUserChanged={(u) => setUser(u)} />}
+              {tab === 'settings' && <SettingsScreen user={user} onUserChanged={(u) => setUser(u)} onOpenManual={() => setShowManual(true)} />}
             </main>
           </div>
         )}
       </div>
+      {showManual && <UserManualModal onClose={() => setShowManual(false)} />}
     </div>
   );
 }

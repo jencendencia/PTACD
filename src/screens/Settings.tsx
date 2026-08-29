@@ -6,7 +6,7 @@ import { Modal, Spinner, Toast, UserAvatar, fmtMoney } from '../components/share
 
 const ROLES: PtaRole[] = ['admin', 'president', 'vice_president', 'treasurer', 'secretary', 'auditor'];
 
-export function SettingsScreen({ user, onUserChanged }: { user: PtaUser; onUserChanged: (u: PtaUser) => void }) {
+export function SettingsScreen({ user, onUserChanged, onOpenManual }: { user: PtaUser; onUserChanged: (u: PtaUser) => void; onOpenManual: () => void }) {
   const [settings, setSettings] = useState<PtaSettings | null>(null);
   const [schoolYears, setSchoolYears] = useState<string[]>([]);
   const [components, setComponents] = useState<FeeComponent[] | null>(null);
@@ -358,6 +358,18 @@ export function SettingsScreen({ user, onUserChanged }: { user: PtaUser; onUserC
           </table>
           <div className="form-actions">
             <button className="btn-ghost" onClick={() => setShowUser('new')}>+ Add officer</button>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3>User Manual</h3>
+          <p className="field-hint">
+            View the complete user guide for the PTA CD application.
+          </p>
+          <div className="form-actions">
+            <button className="btn-primary" onClick={onOpenManual}>
+              📖 Open User Manual
+            </button>
           </div>
         </div>
 

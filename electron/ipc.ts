@@ -1,7 +1,7 @@
 // IPC surface for PTA CD. A light main-process session tracks the logged-in
 // officer; sensitive actions enforce roles (President approves, Treasurer
 // pays, Admin manages users).
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { existsSync, readFileSync, promises as fs } from 'fs';
 import {
   checkForUpdates,
@@ -512,6 +512,35 @@ export function registerIpc(): void {
   ipcMain.handle('pta:clearGithubToken', (): void => {
     requireUser();
     clearGithubToken();
+  });
+
+  // ---- User manual ----------------------------------------------------------
+  ipcMain.handle('pta:openUserManual', (): void => {
+    requireUser();
+    const candidates = [
+      path.join(process.resourcesPath, 'PTA_CD_User_Manual.pdf'),
+      path.join(__dirname, '../../resources/PTA_CD_User_Manual.pdf'),
+      path.join(__dirname, '../resources/PTA_CD_User_Manual.pdf'),
+    ];
+    for (const filePath of candidates) {
+      if (existsSync(filePath)) {
+        void shell.openPath(filePath);
+        return;
+      }
+    }
+    throw new Error('User manual not found.');
+  });
+  ipcMain.handle('pta:getUserManualPath', (): string => {
+    requireUser();
+    const candidates = [
+      path.join(process.resourcesPath, 'PTA_CD_User_Manual.pdf'),
+      path.join(__dirname, '../../resources/PTA_CD_User_Manual.pdf'),
+      path.join(__dirname, '../resources/PTA_CD_User_Manual.pdf'),
+    ];
+    for (const filePath of candidates) {
+      if (existsSync(filePath)) return filePath;
+    }
+    throw new Error('User manual not found.');
   });
 
   // ---- License / activation (before login) -------------------------------------------

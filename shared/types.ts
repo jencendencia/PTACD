@@ -560,6 +560,10 @@ export interface PtaApi {
   clearGithubToken(): Promise<void>;
   /** Subscribe to updater status changes; returns an unsubscribe function. */
   onUpdateStatus(cb: (status: PtaUpdateStatus) => void): () => void;
+  // user manual
+  openUserManual(): Promise<void>;
+  getUserManualPath(): Promise<string>;
+
   // license / activation
   checkLicense(): Promise<PtaLicenseStatus>;
   activateLicense(key: string): Promise<PtaLicenseResult>;

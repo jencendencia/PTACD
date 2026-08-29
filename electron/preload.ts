@@ -148,6 +148,10 @@ const api: PtaApi = {
     return () => ipcRenderer.removeListener('update:status', listener);
   },
 
+  // user manual
+  openUserManual: () => ipcRenderer.invoke('pta:openUserManual') as Promise<void>,
+  getUserManualPath: () => ipcRenderer.invoke('pta:getUserManualPath') as Promise<string>,
+
   checkLicense: () => ipcRenderer.invoke('pta:checkLicense') as Promise<PtaLicenseStatus>,
   activateLicense: (key: string) =>
     ipcRenderer.invoke('pta:activateLicense', key) as Promise<PtaLicenseResult>,

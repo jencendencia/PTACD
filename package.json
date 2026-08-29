@@ -32,6 +32,12 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/PTA_CD_User_Manual.pdf",
+        "to": "PTA_CD_User_Manual.pdf"
+      }
+    ],
     "directories": {
       "output": "release"
     },
